@@ -1,0 +1,1 @@
+ALTER TABLE public.general_questions ADD COLUMN lang TEXT DEFAULT NULL;

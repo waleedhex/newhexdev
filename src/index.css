@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "@fontsource/tajawal/400.css";
+@import "@fontsource/tajawal/700.css";
+@import "@fontsource/tajawal/800.css";
+
+@layer base {
+  :root {
+    --background: 275 100% 27%;
+    --foreground: 0 0% 100%;
+
+    --card: 0 0% 0%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 275 100% 27%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 340 100% 63%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 123 38% 63%;
+    --secondary-foreground: 0 0% 0%;
+
+    --muted: 275 50% 35%;
+    --muted-foreground: 0 0% 80%;
+
+    --accent: 39 100% 50%;
+    --accent-foreground: 0 0% 0%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 275 50% 40%;
+    --input: 275 50% 40%;
+    --ring: 39 100% 50%;
+
+    --radius: 0.5rem;
+
+    /* Custom hex colors */
+    --hex-cream: 60 100% 94%;
+    --hex-orange: 39 100% 50%;
+    --hex-red: 340 100% 63%;
+    --hex-green: 123 38% 63%;
+    --hex-gold: 51 100% 50%;
+
+    --sidebar-background: 275 100% 27%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 340 100% 63%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 123 38% 63%;
+    --sidebar-accent-foreground: 0 0% 0%;
+    --sidebar-border: 275 50% 40%;
+    --sidebar-ring: 39 100% 50%;
+  }
+
+  .dark {
+    --background: 275 100% 20%;
+    --foreground: 0 0% 100%;
+
+    --card: 0 0% 0%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 275 100% 20%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 340 100% 63%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 123 38% 63%;
+    --secondary-foreground: 0 0% 0%;
+
+    --muted: 275 50% 30%;
+    --muted-foreground: 0 0% 70%;
+
+    --accent: 39 100% 50%;
+    --accent-foreground: 0 0% 0%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 275 50% 35%;
+    --input: 275 50% 35%;
+    --ring: 39 100% 50%;
+
+    --sidebar-background: 275 100% 20%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 340 100% 63%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 123 38% 63%;
+    --sidebar-accent-foreground: 0 0% 0%;
+    --sidebar-border: 275 50% 35%;
+    --sidebar-ring: 39 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
