@@ -155,11 +155,6 @@ const InvitePage: React.FC = () => {
             {t(lang, 'backToHome')}
           </Button>
 
-          {/* Language toggle */}
-          <div className="flex items-center justify-center gap-3 pt-4">
-            <Button variant={lang === 'ar' ? 'default' : 'outline'} size="sm" onClick={() => setLang('ar')} className="min-w-[80px]">عربي</Button>
-            <Button variant={lang === 'en' ? 'default' : 'outline'} size="sm" onClick={() => setLang('en')} className="min-w-[80px]">English</Button>
-          </div>
         </div>
       </div>
     );
@@ -190,11 +185,6 @@ const InvitePage: React.FC = () => {
             </Alert>
           )}
 
-          {/* Language toggle */}
-          <div className="flex items-center justify-center gap-3 pt-2">
-            <Button variant={lang === 'ar' ? 'default' : 'outline'} size="sm" onClick={() => setLang('ar')} className="min-w-[80px]">عربي</Button>
-            <Button variant={lang === 'en' ? 'default' : 'outline'} size="sm" onClick={() => setLang('en')} className="min-w-[80px]">English</Button>
-          </div>
 
           <div className="grid grid-cols-2 gap-4 pt-4">
             <Button onClick={() => handleRoleSelect('host')} disabled={!isNameValid(name) || isCheckingHost} className="h-32 flex flex-col items-center justify-center gap-3 text-lg bg-primary hover:bg-primary/90 transition-all">
