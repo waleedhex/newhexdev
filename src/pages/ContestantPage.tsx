@@ -479,6 +479,7 @@ const ContestantPage: React.FC = () => {
       />
       {/* Hex Grid */}
       <div
+        dir="rtl"
         className="p-0 bg-card rounded-[1vw] shadow-[0_0.4vw_0.8vw_rgba(0,0,0,0.3)] overflow-hidden flex flex-col items-center relative pointer-events-none flex-shrink-0"
         style={{
           width: 'calc(7 * (90vw / 7) + 6 * (90vw / 200))'
