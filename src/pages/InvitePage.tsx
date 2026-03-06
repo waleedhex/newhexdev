@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { User, Bell, Loader2, AlertTriangle } from 'lucide-react';
+import AnnouncementBanner from '@/components/AnnouncementBanner';
 import { supabase } from '@/integrations/supabase/client';
 import { setHostToken, clearHostToken, getHostToken } from '@/hooks/useHostBoardActions';
 import { registerHostAtomic } from '@/hooks/useHostValidation';
@@ -165,13 +166,7 @@ const InvitePage: React.FC = () => {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 font-tajawal" dir={isRtl(lang) ? 'rtl' : 'ltr'}>
       <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <div className="mx-auto w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-            <span className="text-4xl">🎮</span>
-          </div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">{t(lang, 'welcomeTitle')}</h1>
-          <p className="text-muted-foreground">{t(lang, 'inviteSubtitle')}</p>
-        </div>
+        <AnnouncementBanner />
 
         <div className="space-y-4">
           <div className="space-y-2">
