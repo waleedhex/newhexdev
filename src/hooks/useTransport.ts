@@ -2,8 +2,10 @@
  * hooks/useTransport.ts
  * Hook موحد لإدارة النقل الهجين
  * 
- * يوفر واجهة بسيطة للـ Components بدون معرفة تفاصيل النقل
- * يدعم: Broadcast (دائماً) + WebRTC (عند التوفر)
+ * ✅ مُحدّث:
+ * - statsInterval رُفع إلى 15 ثانية
+ * - Peer Announcements مدمجة في HybridTransport (بدون PeerAnnouncementManager منفصل)
+ * - Signaling مدمج في نفس قناة game-events
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -19,7 +21,6 @@ import {
   FlashEvent,
   createEvent,
 } from '@/transport';
-import { PeerAnnouncementManager } from '@/transport/peerAnnouncement';
 
 // ============= أنواع =============
 
@@ -30,9 +31,7 @@ export interface UseTransportProps {
   role: TransportRole;
   playerId?: string;
   playerName?: string;
-  /** تعطيل WebRTC (افتراضي: false) */
   disableRTC?: boolean;
-  // معالجات الأحداث
   onBuzzerPressed?: (event: BuzzerPressedEvent) => void;
   onBuzzerTimeout?: (event: BuzzerTimeoutEvent) => void;
   onBuzzerReset?: (event: BuzzerResetEvent) => void;
@@ -47,6 +46,9 @@ export interface TransportStats {
   rtcReady: boolean;
   connectedPeers: number;
 }
+
+/** فترة تحديث الإحصائيات (15 ثانية بدلاً من 5) */
+const STATS_INTERVAL = 15000;
 
 // ============= Hook =============
 
@@ -72,7 +74,6 @@ export const useTransport = ({
   });
   
   const transportRef = useRef<HybridTransport | null>(null);
-  const announcementRef = useRef<PeerAnnouncementManager | null>(null);
   const handlersRef = useRef({
     onBuzzerPressed,
     onBuzzerTimeout,
@@ -82,7 +83,6 @@ export const useTransport = ({
     onFlash,
   });
   
-  // تحديث المعالجات عند تغييرها
   useEffect(() => {
     handlersRef.current = {
       onBuzzerPressed,
@@ -94,7 +94,6 @@ export const useTransport = ({
     };
   }, [onBuzzerPressed, onBuzzerTimeout, onBuzzerReset, onPartyMode, onGoldenCelebration, onFlash]);
   
-  // معالجة الأحداث الواردة
   const handleEvent = useCallback((event: TransientEvent) => {
     switch (event.type) {
       case 'buzzer_pressed':
@@ -122,33 +121,19 @@ export const useTransport = ({
   
   const sendBuzzerPressed = useCallback((player: string, team: 'red' | 'green') => {
     if (!transportRef.current?.ready()) return;
-    
-    const event = createEvent({
-      type: 'buzzer_pressed',
-      player,
-      team,
-    }) as BuzzerPressedEvent;
-    
+    const event = createEvent({ type: 'buzzer_pressed', player, team }) as BuzzerPressedEvent;
     transportRef.current.send(event);
   }, []);
   
   const sendBuzzerTimeout = useCallback(() => {
     if (!transportRef.current?.ready()) return;
-    
-    const event = createEvent({
-      type: 'buzzer_timeout',
-    }) as BuzzerTimeoutEvent;
-    
+    const event = createEvent({ type: 'buzzer_timeout' }) as BuzzerTimeoutEvent;
     transportRef.current.send(event);
   }, []);
   
   const sendBuzzerReset = useCallback(() => {
     if (!transportRef.current?.ready()) return;
-    
-    const event = createEvent({
-      type: 'buzzer_reset',
-    }) as BuzzerResetEvent;
-    
+    const event = createEvent({ type: 'buzzer_reset' }) as BuzzerResetEvent;
     transportRef.current.send(event);
   }, []);
   
@@ -158,40 +143,21 @@ export const useTransport = ({
     winningPath: [number, number][]
   ) => {
     if (!transportRef.current?.ready()) return;
-    
-    const event = createEvent({
-      type: 'party_mode',
-      active,
-      winningTeam,
-      winningPath,
-    }) as PartyModeEvent;
-    
+    const event = createEvent({ type: 'party_mode', active, winningTeam, winningPath }) as PartyModeEvent;
     transportRef.current.send(event);
   }, []);
   
   const sendGoldenCelebration = useCallback((letter: string) => {
     if (!transportRef.current?.ready()) return;
-    
-    const event = createEvent({
-      type: 'golden_celebration',
-      letter,
-    }) as GoldenCelebrationEvent;
-    
+    const event = createEvent({ type: 'golden_celebration', letter }) as GoldenCelebrationEvent;
     transportRef.current.send(event);
   }, []);
   
   const sendFlash = useCallback((team: 'red' | 'green') => {
     if (!transportRef.current?.ready()) return;
-    
-    const event = createEvent({
-      type: 'flash',
-      team,
-    }) as FlashEvent;
-    
+    const event = createEvent({ type: 'flash', team }) as FlashEvent;
     transportRef.current.send(event);
   }, []);
-  
-  // ============= Host-specific: اتصال بـ Peer =============
   
   const connectToPeer = useCallback(async (peerId: string) => {
     if (role !== 'host' || !transportRef.current) return;
@@ -222,26 +188,23 @@ export const useTransport = ({
           return;
         }
         
-        // الاشتراك في الأحداث
         transport.subscribe(handleEvent);
         
         transportRef.current = transport;
         setIsConnected(true);
         setStats(transport.getStats());
         
-        // إعلان الانضمام (للمتسابق والشاشة فقط)
+        // إعلان الانضمام (للمتسابق والشاشة فقط) — مدمج في HybridTransport
         if (role !== 'host' && playerId) {
-          const announcement = new PeerAnnouncementManager(sessionCode);
-          await announcement.announceJoin(playerId, role as 'contestant' | 'display', playerName);
-          announcementRef.current = announcement;
+          transport.announceJoin(playerId, role as 'contestant' | 'display', playerName);
         }
         
-        // تحديث الإحصائيات دورياً
+        // ✅ تحديث الإحصائيات كل 15 ثانية (بدلاً من 5)
         statsInterval = setInterval(() => {
           if (transportRef.current) {
             setStats(transportRef.current.getStats());
           }
-        }, 5000);
+        }, STATS_INTERVAL);
         
       } catch (err) {
         console.error('❌ [useTransport] Connection failed:', err);
@@ -255,11 +218,9 @@ export const useTransport = ({
       mounted = false;
       if (statsInterval) clearInterval(statsInterval);
       
-      // إعلان المغادرة
-      if (announcementRef.current && playerId && role !== 'host') {
-        announcementRef.current.announceLeave(playerId, role as 'contestant' | 'display');
-        announcementRef.current.disconnect();
-        announcementRef.current = null;
+      // إعلان المغادرة — مدمج في HybridTransport
+      if (transportRef.current && playerId && role !== 'host') {
+        transportRef.current.announceLeave(playerId, role as 'contestant' | 'display');
       }
       
       transportRef.current?.disconnect();
@@ -268,31 +229,23 @@ export const useTransport = ({
     };
   }, [sessionCode, role, playerId, playerName, disableRTC, handleEvent]);
   
-  // ============= تنظيف عند الخروج =============
-  
   useEffect(() => {
     const handleBeforeUnload = () => {
       transportRef.current?.disconnect();
     };
-    
     window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
   
   return {
     isConnected,
     stats,
-    // دوال الإرسال
     sendBuzzerPressed,
     sendBuzzerTimeout,
     sendBuzzerReset,
     sendPartyMode,
     sendGoldenCelebration,
     sendFlash,
-    // Host-specific
     connectToPeer,
   };
 };
