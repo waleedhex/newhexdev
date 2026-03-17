@@ -2,8 +2,8 @@
  * transport/BroadcastTransport.ts
  * تغليف Supabase Broadcast Channel كـ Transport
  * 
- * هذا هو النقل الافتراضي والـ fallback
- * يستخدم نفس قناة game-events الحالية
+ * يدعم أيضاً Signaling و Peer Announcements على نفس القناة
+ * لتقليل عدد الاشتراكات (قناة واحدة بدل ثلاث)
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -16,6 +16,8 @@ import {
   TransientEventType,
   EventHandler,
   BroadcastTransportConfig,
+  SignalingMessage,
+  PeerAnnouncement,
 } from './types';
 
 export class BroadcastTransport implements Transport {
@@ -28,21 +30,17 @@ export class BroadcastTransport implements Transport {
   private processedEvents: Set<string> = new Set();
   private cleanupInterval: NodeJS.Timeout | null = null;
   
-  private readonly sessionCode: string;
+  private readonly config: BroadcastTransportConfig;
   private readonly channelName: string;
   
   constructor(config: BroadcastTransportConfig) {
-    this.sessionCode = config.sessionCode;
+    this.config = config;
     this.channelName = config.channelName || `game-events-${config.sessionCode.toLowerCase()}`;
   }
-  
-  // ============= Getters =============
   
   get status(): TransportStatus {
     return this._status;
   }
-  
-  // ============= Transport Interface =============
   
   ready(): boolean {
     return this._status === 'connected';
@@ -54,10 +52,7 @@ export class BroadcastTransport implements Transport {
       return;
     }
     
-    // أضف الحدث للأحداث المعالجة (لتجنب معالجته عند استلامه)
     this.processedEvents.add(event.event_id);
-    
-    console.log('📡 [BroadcastTransport] Sending:', event.type, event.event_id);
     
     this.channel.send({
       type: 'broadcast',
@@ -66,12 +61,41 @@ export class BroadcastTransport implements Transport {
     });
   }
   
+  /**
+   * إرسال رسالة Signaling عبر نفس القناة
+   */
+  sendSignaling(message: SignalingMessage): void {
+    if (!this.channel || !this.ready()) {
+      console.warn('⚠️ [BroadcastTransport] Cannot send signaling - not ready');
+      return;
+    }
+    
+    this.channel.send({
+      type: 'broadcast',
+      event: 'signaling',
+      payload: message,
+    });
+  }
+  
+  /**
+   * إرسال إعلان peer عبر نفس القناة
+   */
+  sendPeerAnnouncement(announcement: PeerAnnouncement): void {
+    if (!this.channel || !this.ready()) {
+      console.warn('⚠️ [BroadcastTransport] Cannot send peer announcement - not ready');
+      return;
+    }
+    
+    this.channel.send({
+      type: 'broadcast',
+      event: 'peer_announcement',
+      payload: announcement,
+    });
+  }
+  
   subscribe(handler: EventHandler): () => void {
     this.handlers.add(handler);
-    
-    return () => {
-      this.handlers.delete(handler);
-    };
+    return () => this.handlers.delete(handler);
   }
   
   on<T extends TransientEventType>(
@@ -81,17 +105,11 @@ export class BroadcastTransport implements Transport {
     if (!this.typedHandlers.has(type)) {
       this.typedHandlers.set(type, new Set());
     }
-    
     this.typedHandlers.get(type)!.add(handler as EventHandler);
-    
-    return () => {
-      this.typedHandlers.get(type)?.delete(handler as EventHandler);
-    };
+    return () => this.typedHandlers.get(type)?.delete(handler as EventHandler);
   }
   
   disconnect(): void {
-    console.log('🔌 [BroadcastTransport] Disconnecting');
-    
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
@@ -108,15 +126,9 @@ export class BroadcastTransport implements Transport {
     this._status = 'disconnected';
   }
   
-  // ============= Connection Management =============
-  
-  /**
-   * الاتصال بالقناة
-   */
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.channel) {
-        console.log('⚠️ [BroadcastTransport] Already connected');
         resolve();
         return;
       }
@@ -130,15 +142,22 @@ export class BroadcastTransport implements Transport {
         },
       });
       
-      // الاشتراك في أحداث اللعبة
+      // 1️⃣ أحداث اللعبة العابرة
       this.channel.on('broadcast', { event: 'game_event' }, (payload) => {
         this.handleIncomingEvent(payload.payload as TransientEvent);
       });
       
-      // بدء الاشتراك
+      // 2️⃣ رسائل Signaling (مدمجة في نفس القناة)
+      this.channel.on('broadcast', { event: 'signaling' }, (payload) => {
+        this.config.onSignalingMessage?.(payload.payload as SignalingMessage);
+      });
+      
+      // 3️⃣ إعلانات الأقران (مدمجة في نفس القناة)
+      this.channel.on('broadcast', { event: 'peer_announcement' }, (payload) => {
+        this.config.onPeerAnnouncement?.(payload.payload as PeerAnnouncement);
+      });
+      
       this.channel.subscribe((status) => {
-        console.log('📡 [BroadcastTransport] Status:', status);
-        
         switch (status) {
           case 'SUBSCRIBED':
             this._status = 'connected';
@@ -158,71 +177,40 @@ export class BroadcastTransport implements Transport {
     });
   }
   
-  // ============= Private Methods =============
-  
-  /**
-   * معالجة الأحداث الواردة
-   */
   private handleIncomingEvent(event: TransientEvent): void {
-    // تجاهل الأحداث المعالجة مسبقاً
     if (this.processedEvents.has(event.event_id)) {
-      console.log('⏭️ [BroadcastTransport] Skipping duplicate:', event.type, event.event_id);
       return;
     }
     
-    // تسجيل الحدث كمُعالج
     this.processedEvents.add(event.event_id);
     
-    console.log('📥 [BroadcastTransport] Received:', event.type, event.event_id);
-    
-    // إشعار المعالجات العامة
     this.handlers.forEach(handler => {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error('❌ [BroadcastTransport] Handler error:', err);
-      }
+      try { handler(event); } catch (err) { console.error('❌ [BroadcastTransport] Handler error:', err); }
     });
     
-    // إشعار المعالجات المحددة بالنوع
     const typeHandlers = this.typedHandlers.get(event.type);
     if (typeHandlers) {
       typeHandlers.forEach(handler => {
-        try {
-          handler(event);
-        } catch (err) {
-          console.error('❌ [BroadcastTransport] Typed handler error:', err);
-        }
+        try { handler(event); } catch (err) { console.error('❌ [BroadcastTransport] Typed handler error:', err); }
       });
     }
   }
   
-  /**
-   * تنظيف الأحداث القديمة
-   */
   private startCleanupInterval(): void {
     if (this.cleanupInterval) return;
     
     this.cleanupInterval = setInterval(() => {
-      const now = Date.now();
-      const cutoff = now - 30000; // 30 ثانية
-      
+      const cutoff = Date.now() - 30000;
       const newSet = new Set<string>();
       this.processedEvents.forEach(eventId => {
         const timestamp = parseInt(eventId.split('-')[0], 10);
-        if (timestamp > cutoff) {
-          newSet.add(eventId);
-        }
+        if (timestamp > cutoff) newSet.add(eventId);
       });
-      
       this.processedEvents = newSet;
-    }, 10000); // كل 10 ثواني
+    }, 10000);
   }
 }
 
-/**
- * إنشاء BroadcastTransport وبدء الاتصال
- */
 export const createBroadcastTransport = async (
   config: BroadcastTransportConfig
 ): Promise<BroadcastTransport> => {
