@@ -19,7 +19,7 @@ import { useVisualEffects } from '@/hooks/useVisualEffects';
 import { useCelebrationState } from '@/hooks/useCelebrationState';
 import { useGameEvents, BuzzerPressedEvent, BuzzerTimeoutEvent } from '@/hooks/useGameEvents';
 import { usePlayerStatusNotifications } from '@/hooks/usePlayerStatusNotifications';
-import { usePeerConnections } from '@/hooks/usePeerConnections';
+// usePeerConnections removed — HybridTransport handles auto-connect internally
 import { supabase } from '@/integrations/supabase/client';
 import { findWinningPath, pathsMatch } from '@/gameEngine';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
@@ -154,12 +154,7 @@ const HexGrid: React.FC = () => {
     onBuzzerTimeout: handleBuzzerTimeout,
   });
 
-  // ====== إدارة اتصالات RTC مع المتسابقين ======
-  usePeerConnections({
-    sessionCode,
-    enabled: !!sessionCode,
-    onConnectToPeer: connectToPeer,
-  });
+  // ✅ Peer connections now handled automatically by HybridTransport
 
   // ====== إشعارات حالة اللاعبين ======
   usePlayerStatusNotifications({
