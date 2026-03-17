@@ -1,11 +1,10 @@
 /**
  * transport/signaling.ts
- * إدارة Signaling لـ WebRTC عبر Supabase Broadcast
+ * إدارة Signaling لـ WebRTC
  * 
- * Signaling هو عملية تبادل معلومات الاتصال بين الأطراف:
- * - Offer: عرض من المُنشئ
- * - Answer: رد من المستقبِل
- * - ICE Candidate: معلومات الشبكة للاتصال
+ * يدعم وضعين:
+ * 1. مدمج: يستخدم sendFn خارجية (عبر BroadcastTransport) — بدون قناة منفصلة
+ * 2. مستقل: ينشئ قناة خاصة (للتوافق القديم)
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -13,7 +12,7 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 import { SignalingMessage, SignalingType } from './types';
 import { SIGNALING_TIMEOUT } from './rtcConfig';
 
-// ============= أنواع Signaling =============
+// ============= أنواع =============
 
 export interface SignalingHandlers {
   onOffer?: (from: string, offer: RTCSessionDescriptionInit) => void;
@@ -25,56 +24,52 @@ export interface SignalingManagerConfig {
   sessionCode: string;
   peerId: string;
   handlers: SignalingHandlers;
+  /** دالة إرسال خارجية (وضع مدمج - بدون قناة منفصلة) */
+  sendFn?: (msg: SignalingMessage) => void;
 }
 
-// ============= Signaling Manager =============
+// ============= ICE Rate Limiting =============
 
-/**
- * مدير Signaling
- * يستخدم قناة Broadcast منفصلة للـ Signaling
- * لا يتداخل مع قناة الأحداث الرئيسية
- */
-// ============= ICE Rate Limiting Constants =============
-
-/** الحد الأقصى لعدد ICE candidates لكل peer */
 const MAX_ICE_CANDIDATES_PER_PEER = 10;
-
-/** مهلة إيقاف ICE candidates بعد نجاح الاتصال (ms) */
 const ICE_GATHERING_TIMEOUT = 5000;
 
 // ============= Signaling Manager =============
 
 export class SignalingManager {
   private channel: RealtimeChannel | null = null;
-  private readonly sessionCode: string;
   private readonly peerId: string;
   private readonly channelName: string;
   private handlers: SignalingHandlers;
   private isConnected = false;
+  private readonly sendFn?: (msg: SignalingMessage) => void;
   
-  // ====== ICE Rate Limiting ======
-  /** عدد ICE candidates المرسلة لكل peer */
+  // ICE Rate Limiting
   private iceCandidateCount: Map<string, number> = new Map();
-  /** هل تم إيقاف ICE لهذا الـ peer؟ */
   private iceStoppedForPeer: Set<string> = new Set();
-  /** مؤقتات إيقاف ICE */
   private iceTimeouts: Map<string, NodeJS.Timeout> = new Map();
   
   constructor(config: SignalingManagerConfig) {
-    this.sessionCode = config.sessionCode;
     this.peerId = config.peerId;
     this.channelName = `signaling-${config.sessionCode.toLowerCase()}`;
     this.handlers = config.handlers;
+    this.sendFn = config.sendFn;
   }
   
-  // ============= Lifecycle =============
-  
   /**
-   * بدء الاستماع لرسائل Signaling
+   * بدء الاستماع
+   * في الوضع المدمج: لا حاجة لقناة منفصلة
    */
   async connect(): Promise<void> {
     if (this.isConnected) return;
     
+    // وضع مدمج: لا نحتاج قناة منفصلة
+    if (this.sendFn) {
+      console.log('🔗 [Signaling] Using integrated mode (no separate channel)');
+      this.isConnected = true;
+      return;
+    }
+    
+    // وضع مستقل: قناة منفصلة (fallback)
     console.log('🔗 [Signaling] Connecting to:', this.channelName);
     
     return new Promise((resolve, reject) => {
@@ -83,19 +78,14 @@ export class SignalingManager {
       }, SIGNALING_TIMEOUT);
       
       this.channel = supabase.channel(this.channelName, {
-        config: {
-          broadcast: { self: false },
-        },
+        config: { broadcast: { self: false } },
       });
       
-      // الاستماع لرسائل Signaling
       this.channel.on('broadcast', { event: 'signaling' }, (payload) => {
         this.handleSignalingMessage(payload.payload as SignalingMessage);
       });
       
       this.channel.subscribe((status) => {
-        console.log('🔗 [Signaling] Status:', status);
-        
         if (status === 'SUBSCRIBED') {
           clearTimeout(timeout);
           this.isConnected = true;
@@ -108,13 +98,7 @@ export class SignalingManager {
     });
   }
   
-  /**
-   * إغلاق الاتصال وتنظيف الموارد
-   */
   disconnect(): void {
-    console.log('🔌 [Signaling] Disconnecting');
-    
-    // تنظيف مؤقتات ICE
     this.iceTimeouts.forEach(timeout => clearTimeout(timeout));
     this.iceTimeouts.clear();
     this.iceCandidateCount.clear();
@@ -128,16 +112,17 @@ export class SignalingManager {
     this.isConnected = false;
   }
   
+  /**
+   * معالجة رسالة Signaling واردة (يُستدعى من الخارج في الوضع المدمج)
+   */
+  handleIncomingMessage(message: SignalingMessage): void {
+    this.handleSignalingMessage(message);
+  }
+  
   // ============= ICE Rate Limiting =============
   
-  /**
-   * إيقاف ICE candidates لـ peer معين (عند نجاح الاتصال)
-   */
   stopIceForPeer(peerId: string): void {
-    console.log('🛑 [Signaling] Stopping ICE for peer:', peerId);
     this.iceStoppedForPeer.add(peerId);
-    
-    // تنظيف المؤقت إذا كان موجوداً
     const timeout = this.iceTimeouts.get(peerId);
     if (timeout) {
       clearTimeout(timeout);
@@ -145,13 +130,9 @@ export class SignalingManager {
     }
   }
   
-  /**
-   * إعادة تعيين ICE لـ peer (عند إعادة الاتصال)
-   */
   resetIceForPeer(peerId: string): void {
     this.iceStoppedForPeer.delete(peerId);
     this.iceCandidateCount.delete(peerId);
-    
     const timeout = this.iceTimeouts.get(peerId);
     if (timeout) {
       clearTimeout(timeout);
@@ -159,85 +140,47 @@ export class SignalingManager {
     }
   }
   
-  /**
-   * التحقق من إمكانية إرسال ICE candidate
-   */
   private canSendIce(to: string): boolean {
-    // هل تم إيقاف ICE لهذا الـ peer؟
-    if (this.iceStoppedForPeer.has(to)) {
-      return false;
-    }
-    
-    // التحقق من الحد الأقصى
+    if (this.iceStoppedForPeer.has(to)) return false;
     const count = this.iceCandidateCount.get(to) || 0;
-    if (count >= MAX_ICE_CANDIDATES_PER_PEER) {
-      console.warn(`⚠️ [Signaling] ICE limit reached for peer: ${to}`);
-      return false;
-    }
-    
+    if (count >= MAX_ICE_CANDIDATES_PER_PEER) return false;
     return true;
   }
   
-  /**
-   * بدء مؤقت إيقاف ICE التلقائي
-   */
   private startIceTimeout(peerId: string): void {
-    // لا تبدأ مؤقت جديد إذا كان موجوداً
     if (this.iceTimeouts.has(peerId)) return;
-    
     const timeout = setTimeout(() => {
-      console.log('⏱️ [Signaling] ICE timeout for peer:', peerId);
       this.stopIceForPeer(peerId);
     }, ICE_GATHERING_TIMEOUT);
-    
     this.iceTimeouts.set(peerId, timeout);
   }
   
-  // ============= Sending Methods =============
+  // ============= Sending =============
   
-  /**
-   * إرسال Offer
-   */
   sendOffer(to: string, offer: RTCSessionDescriptionInit): void {
-    this.send('offer', to, offer);
+    this.sendMessage('offer', to, offer);
   }
   
-  /**
-   * إرسال Answer
-   */
   sendAnswer(to: string, answer: RTCSessionDescriptionInit): void {
-    this.send('answer', to, answer);
+    this.sendMessage('answer', to, answer);
   }
   
-  /**
-   * إرسال ICE Candidate (مع rate limiting)
-   */
   sendIceCandidate(to: string, candidate: RTCIceCandidateInit): void {
-    // التحقق من rate limiting
-    if (!this.canSendIce(to)) {
-      return;
-    }
-    
-    // زيادة العداد
+    if (!this.canSendIce(to)) return;
     const count = (this.iceCandidateCount.get(to) || 0) + 1;
     this.iceCandidateCount.set(to, count);
-    
-    // بدء مؤقت الإيقاف التلقائي
     this.startIceTimeout(to);
-    this.send('ice-candidate', to, candidate);
+    this.sendMessage('ice-candidate', to, candidate);
   }
   
-  // ============= Private Methods =============
+  // ============= Private =============
   
-  /**
-   * إرسال رسالة Signaling
-   */
-  private send(
+  private sendMessage(
     type: SignalingType,
     to: string,
     payload: RTCSessionDescriptionInit | RTCIceCandidateInit
   ): void {
-    if (!this.channel || !this.isConnected) {
+    if (!this.isConnected) {
       console.warn('⚠️ [Signaling] Not connected, cannot send:', type);
       return;
     }
@@ -250,7 +193,14 @@ export class SignalingManager {
       timestamp: Date.now(),
     };
     
-    console.log('📤 [Signaling] Sending:', type, 'to:', to);
+    // وضع مدمج: إرسال عبر الدالة الخارجية
+    if (this.sendFn) {
+      this.sendFn(message);
+      return;
+    }
+    
+    // وضع مستقل: إرسال عبر القناة
+    if (!this.channel) return;
     
     this.channel.send({
       type: 'broadcast',
@@ -259,45 +209,23 @@ export class SignalingManager {
     });
   }
   
-  /**
-   * معالجة رسائل Signaling الواردة
-   */
   private handleSignalingMessage(message: SignalingMessage): void {
-    // تجاهل الرسائل غير الموجهة لنا
-    if (message.to !== this.peerId) {
-      return;
-    }
-    
-    console.log('📥 [Signaling] Received:', message.type, 'from:', message.from);
+    if (message.to !== this.peerId) return;
     
     switch (message.type) {
       case 'offer':
-        this.handlers.onOffer?.(
-          message.from,
-          message.payload as RTCSessionDescriptionInit
-        );
+        this.handlers.onOffer?.(message.from, message.payload as RTCSessionDescriptionInit);
         break;
-        
       case 'answer':
-        this.handlers.onAnswer?.(
-          message.from,
-          message.payload as RTCSessionDescriptionInit
-        );
+        this.handlers.onAnswer?.(message.from, message.payload as RTCSessionDescriptionInit);
         break;
-        
       case 'ice-candidate':
-        this.handlers.onIceCandidate?.(
-          message.from,
-          message.payload as RTCIceCandidateInit
-        );
+        this.handlers.onIceCandidate?.(message.from, message.payload as RTCIceCandidateInit);
         break;
     }
   }
 }
 
-/**
- * إنشاء SignalingManager وبدء الاتصال
- */
 export const createSignalingManager = async (
   config: SignalingManagerConfig
 ): Promise<SignalingManager> => {
