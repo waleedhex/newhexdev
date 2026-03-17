@@ -1,20 +1,16 @@
 /**
  * useContestantChannel.ts
- * قناة موحدة للمتسابق - مُحدّث لاستخدام HybridTransport
+ * قناة موحدة للمتسابق — مُحدّث
  * 
- * الواجهة الخارجية لم تتغير - التوافق الكامل محفوظ
- * يجمع بين:
- * - HybridTransport للأحداث العابرة (buzzer, party, golden)
- * - Supabase Realtime للتحديثات الدائمة (buzzer state, team, kick)
- * 
- * ✅ DEDUPLICATION: يتم تلقائياً في طبقة HybridTransport
- * ✅ TRANSIENT GUARD: assertTransient يمنع إرسال DB-state
- * ✅ ICE RATE LIMITING: تلقائي في SignalingManager
+ * ✅ التحسينات:
+ * - إزالة اشتراك postgres_changes (يمنع إرسال hexagons الضخم للمتسابقين)
+ * - استبدال بـ Smart Polling كل 10 ثوانٍ لعمود buzzer + team فقط
+ * - جلب أولي للحالة عند الانضمام (Smart Reconnect Sync)
+ * - Polling موحد: buzzer + team + kick في استعلام واحد
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { Json } from '@/integrations/supabase/types';
 import { KICK_CHECK_INTERVAL } from '@/config/connectionConstants';
 import { useTransport } from './useTransport';
@@ -26,7 +22,7 @@ import type {
   FlashEvent,
 } from '@/transport';
 
-// ============= إعادة تصدير الأنواع للتوافق =============
+// ============= إعادة تصدير الأنواع =============
 export type { 
   BuzzerPressedEvent, 
   BuzzerTimeoutEvent, 
@@ -45,14 +41,11 @@ export interface BuzzerData {
   isTimeOut?: boolean;
 }
 
-// ============= Props (نفس الواجهة القديمة) =============
-
 export interface UseContestantChannelProps {
   sessionCode: string;
   sessionId: string | null;
   playerId: string | null;
   playerName: string;
-  // معالجات الأحداث
   onBuzzerPressed?: (event: BuzzerPressedEvent) => void;
   onBuzzerTimeout?: (event: BuzzerTimeoutEvent) => void;
   onPartyMode?: (event: PartyModeEvent) => void;
@@ -63,7 +56,7 @@ export interface UseContestantChannelProps {
   onKicked?: () => void;
 }
 
-// ============= Helper Functions =============
+// ============= Helper =============
 
 const parseBuzzer = (data: Json | null): BuzzerData => {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -79,7 +72,7 @@ const parseBuzzer = (data: Json | null): BuzzerData => {
   };
 };
 
-// ============= Hook الرئيسي =============
+// ============= Hook =============
 
 export const useContestantChannel = ({
   sessionCode,
@@ -96,10 +89,11 @@ export const useContestantChannel = ({
   onKicked,
 }: UseContestantChannelProps) => {
   const [isConnected, setIsConnected] = useState(false);
-  const dbChannelRef = useRef<RealtimeChannel | null>(null);
-  const kickCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTeamRef = useRef<string | null>(null);
+  const lastBuzzerRef = useRef<string>('');
 
-  // ====== استخدام useTransport للأحداث العابرة ======
+  // ====== useTransport للأحداث العابرة ======
   const {
     isConnected: transportConnected,
     sendBuzzerPressed: transportSendBuzzerPressed,
@@ -117,7 +111,7 @@ export const useContestantChannel = ({
     onFlash,
   });
 
-  // ====== دوال إرسال (نفس التوقيع القديم) ======
+  // ====== دوال الإرسال ======
   
   const sendBuzzerPressed = useCallback((team: 'red' | 'green') => {
     transportSendBuzzerPressed(playerName, team);
@@ -127,113 +121,97 @@ export const useContestantChannel = ({
     transportSendBuzzerTimeout();
   }, [transportSendBuzzerTimeout]);
 
-  // ====== Polling للتحقق من الطرد (backup) ======
+  // ====== Smart Reconnect Sync: جلب أولي للحالة ======
   useEffect(() => {
-    if (!playerId) return;
+    if (!sessionId || !playerId) return;
 
-    const checkIfKicked = async () => {
-      const { data, error } = await supabase
+    const fetchInitialState = async () => {
+      // جلب buzzer فقط (ليس hexagons!)
+      const { data: sessionData } = await supabase
+        .from('game_sessions')
+        .select('buzzer')
+        .eq('id', sessionId)
+        .single();
+
+      if (sessionData) {
+        const buzzer = parseBuzzer(sessionData.buzzer);
+        lastBuzzerRef.current = JSON.stringify(buzzer);
+        onBuzzerChange?.(buzzer);
+      }
+
+      // جلب team الحالي
+      const { data: playerData } = await supabase
         .from('session_players')
-        .select('id')
+        .select('team')
+        .eq('id', playerId)
+        .single();
+
+      if (playerData?.team) {
+        lastTeamRef.current = playerData.team;
+        if (playerData.team === 'red' || playerData.team === 'green') {
+          onTeamChange?.(playerData.team);
+        }
+      }
+    };
+
+    fetchInitialState();
+  }, [sessionId, playerId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ====== Smart Polling: buzzer + team + kick في استعلام واحد ======
+  useEffect(() => {
+    if (!playerId || !sessionId) return;
+
+    const pollStatus = async () => {
+      // 1️⃣ التحقق من وجود اللاعب + فريقه (kick + team change)
+      const { data: playerData, error: playerError } = await supabase
+        .from('session_players')
+        .select('id, team')
         .eq('id', playerId)
         .maybeSingle();
 
-      if (error || !data) {
+      if (playerError || !playerData) {
         console.log('🚫 Player kicked (polling check)');
         onKicked?.();
+        return;
       }
-    };
 
-    kickCheckIntervalRef.current = setInterval(checkIfKicked, KICK_CHECK_INTERVAL);
-
-    return () => {
-      if (kickCheckIntervalRef.current) {
-        clearInterval(kickCheckIntervalRef.current);
+      // team change detection
+      if (playerData.team && playerData.team !== lastTeamRef.current) {
+        lastTeamRef.current = playerData.team;
+        if (playerData.team === 'red' || playerData.team === 'green') {
+          onTeamChange?.(playerData.team);
+        }
       }
-    };
-  }, [playerId, onKicked]);
 
-  // ====== قناة DB للتحديثات الدائمة (buzzer state, team, kick) ======
-  useEffect(() => {
-    if (!sessionCode || !sessionId) return;
+      // 2️⃣ جلب buzzer فقط (ليس hexagons!)
+      const { data: sessionData } = await supabase
+        .from('game_sessions')
+        .select('buzzer')
+        .eq('id', sessionId)
+        .single();
 
-    // تنظيف القناة السابقة
-    if (dbChannelRef.current) {
-      supabase.removeChannel(dbChannelRef.current);
-      dbChannelRef.current = null;
-    }
+      if (sessionData) {
+        const buzzer = parseBuzzer(sessionData.buzzer);
+        const buzzerKey = JSON.stringify(buzzer);
 
-    const channelName = `db-updates-${sessionCode.toLowerCase()}`;
-    console.log('📡 [ContestantChannel] Subscribing to DB updates:', channelName);
-
-    const channel = supabase.channel(channelName);
-
-    // 1️⃣ تحديثات game_sessions (buzzer state)
-    channel.on(
-      'postgres_changes',
-      {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'game_sessions',
-      },
-      (payload) => {
-        const newData = payload.new as Record<string, unknown>;
-        if (String(newData.session_code).toLowerCase() === sessionCode.toLowerCase()) {
-          const buzzer = parseBuzzer(newData.buzzer as Json);
+        // إرسال التحديث فقط إذا تغيرت الحالة
+        if (buzzerKey !== lastBuzzerRef.current) {
+          lastBuzzerRef.current = buzzerKey;
           onBuzzerChange?.(buzzer);
         }
       }
-    );
+    };
 
-    // 2️⃣ تحديثات session_players (تغيير الفريق + الطرد)
-    if (playerId) {
-      channel.on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'session_players',
-          filter: `id=eq.${playerId}`,
-        },
-        (payload) => {
-          const newData = payload.new as Record<string, unknown>;
-          if (newData.team === 'red' || newData.team === 'green') {
-            onTeamChange?.(newData.team);
-          }
-        }
-      );
-
-      channel.on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'session_players',
-          filter: `id=eq.${playerId}`,
-        },
-        () => {
-          console.log('🚫 Player kicked (realtime)');
-          onKicked?.();
-        }
-      );
-    }
-
-    // بدء الاشتراك
-    channel.subscribe((status) => {
-      console.log('📡 [ContestantChannel] DB channel status:', status);
-    });
-
-    dbChannelRef.current = channel;
+    pollIntervalRef.current = setInterval(pollStatus, KICK_CHECK_INTERVAL);
 
     return () => {
-      if (dbChannelRef.current) {
-        supabase.removeChannel(dbChannelRef.current);
-        dbChannelRef.current = null;
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
       }
     };
-  }, [sessionCode, sessionId, playerId, onBuzzerChange, onTeamChange, onKicked]);
+  }, [playerId, sessionId, onKicked, onTeamChange, onBuzzerChange]);
 
-  // ====== حالة الاتصال الموحدة ======
+  // ====== حالة الاتصال ======
   useEffect(() => {
     setIsConnected(transportConnected);
   }, [transportConnected]);
@@ -242,7 +220,6 @@ export const useContestantChannel = ({
     isConnected,
     sendBuzzerPressed,
     sendBuzzerTimeout,
-    // إضافات جديدة (اختيارية)
     transportStats: stats,
   };
 };
