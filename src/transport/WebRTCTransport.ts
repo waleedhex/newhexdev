@@ -3,8 +3,7 @@
  * تنفيذ WebRTC Transport للاتصال المباشر P2P
  * 
  * المعمارية: Host-to-All (المقدم هو Hub)
- * - المقدم ينشئ اتصالات مع كل متسابق/شاشة
- * - المتسابقون لا يتصلون ببعضهم مباشرة
+ * يدعم Signaling مدمج عبر BroadcastTransport (بدون قناة منفصلة)
  */
 
 import {
@@ -15,6 +14,7 @@ import {
   TransientEventType,
   EventHandler,
   WebRTCTransportConfig,
+  SignalingMessage,
 } from './types';
 import {
   DEFAULT_RTC_CONFIG,
@@ -27,16 +27,12 @@ import {
 } from './rtcConfig';
 import { SignalingManager, createSignalingManager } from './signaling';
 
-// ============= أنواع داخلية =============
-
 interface PeerConnection {
   pc: RTCPeerConnection;
   dataChannel: RTCDataChannel | null;
   isReady: boolean;
   failedHealthChecks: number;
 }
-
-// ============= WebRTCTransport Class =============
 
 export class WebRTCTransport implements Transport {
   readonly type: TransportType = 'webrtc';
@@ -46,6 +42,7 @@ export class WebRTCTransport implements Transport {
   private readonly role: 'host' | 'contestant' | 'display';
   private readonly playerId: string;
   private readonly rtcConfig: RTCConfiguration;
+  private readonly signalingSendFn?: (msg: SignalingMessage) => void;
   
   private signaling: SignalingManager | null = null;
   private peers: Map<string, PeerConnection> = new Map();
@@ -63,17 +60,13 @@ export class WebRTCTransport implements Transport {
     this.rtcConfig = config.iceServers 
       ? { ...DEFAULT_RTC_CONFIG, iceServers: config.iceServers }
       : DEFAULT_RTC_CONFIG;
+    this.signalingSendFn = config.signalingSendFn;
   }
-  
-  // ============= Getters =============
   
   get status(): TransportStatus {
     return this._status;
   }
   
-  /**
-   * عدد الاتصالات النشطة
-   */
   get connectedPeers(): number {
     let count = 0;
     this.peers.forEach(peer => {
@@ -82,34 +75,18 @@ export class WebRTCTransport implements Transport {
     return count;
   }
   
-  // ============= Transport Interface =============
-  
   ready(): boolean {
-    // جاهز إذا كان متصلاً وله اتصال واحد على الأقل (للـ Host)
-    // أو متصل بالـ Host (للمتسابق/الشاشة)
     if (this._status !== 'connected') return false;
-    
-    if (this.role === 'host') {
-      return true; // Host جاهز حتى بدون peers
-    }
-    
-    // المتسابق/الشاشة يحتاج اتصال بالـ Host
+    if (this.role === 'host') return true;
     return this.connectedPeers > 0;
   }
   
   send(event: TransientEvent): void {
-    if (!this.ready()) {
-      console.warn('⚠️ [WebRTCTransport] Not ready to send');
-      return;
-    }
+    if (!this.ready()) return;
     
-    // تسجيل الحدث كمُرسل
     this.processedEvents.add(event.event_id);
-    
     const message = JSON.stringify(event);
-    console.log('📡 [WebRTCTransport] Sending:', event.type, 'to', this.peers.size, 'peers');
     
-    // إرسال لجميع الـ peers المتصلين
     this.peers.forEach((peer, peerId) => {
       if (peer.isReady && peer.dataChannel?.readyState === 'open') {
         try {
@@ -138,44 +115,28 @@ export class WebRTCTransport implements Transport {
   }
   
   disconnect(): void {
-    console.log('🔌 [WebRTCTransport] Disconnecting');
-    
-    // إيقاف الفحوصات الدورية
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
-    
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
     
-    // إغلاق جميع اتصالات Peer
-    this.peers.forEach((peer, peerId) => {
-      this.closePeerConnection(peerId);
-    });
+    this.peers.forEach((_, peerId) => this.closePeerConnection(peerId));
     this.peers.clear();
     
-    // إغلاق Signaling
     this.signaling?.disconnect();
     this.signaling = null;
     
-    // تنظيف
     this.handlers.clear();
     this.typedHandlers.clear();
     this.processedEvents.clear();
-    
     this._status = 'disconnected';
   }
   
-  // ============= Connection Management =============
-  
-  /**
-   * بدء الاتصال
-   */
   async connect(): Promise<void> {
-    // التحقق من دعم WebRTC
     if (!isDataChannelSupported()) {
       throw new Error('WebRTC DataChannel not supported');
     }
@@ -184,7 +145,7 @@ export class WebRTCTransport implements Transport {
     this._status = 'connecting';
     
     try {
-      // إنشاء Signaling Manager
+      // إنشاء Signaling Manager (مدمج أو مستقل)
       this.signaling = await createSignalingManager({
         sessionCode: this.sessionCode,
         peerId: this.playerId,
@@ -193,11 +154,10 @@ export class WebRTCTransport implements Transport {
           onAnswer: (from, answer) => this.handleAnswer(from, answer),
           onIceCandidate: (from, candidate) => this.handleIceCandidate(from, candidate),
         },
+        sendFn: this.signalingSendFn,
       });
       
       this._status = 'connected';
-      
-      // بدء الفحوصات الدورية
       this.startHealthCheck();
       this.startCleanupInterval();
       
@@ -210,35 +170,26 @@ export class WebRTCTransport implements Transport {
   }
   
   /**
-   * إنشاء اتصال مع peer (يُستخدم من المقدم)
+   * تمرير رسالة Signaling واردة (من BroadcastTransport المدمج)
    */
+  handleSignalingMessage(message: SignalingMessage): void {
+    this.signaling?.handleIncomingMessage(message);
+  }
+  
   async connectToPeer(peerId: string): Promise<void> {
-    if (this.role !== 'host') {
-      console.warn('⚠️ [WebRTCTransport] Only host can initiate connections');
-      return;
-    }
-    
-    if (this.peers.has(peerId)) {
-      console.log('⏭️ [WebRTCTransport] Already connected to', peerId);
-      return;
-    }
+    if (this.role !== 'host') return;
+    if (this.peers.has(peerId)) return;
     
     console.log('🤝 [WebRTCTransport] Initiating connection to', peerId);
     
     const pc = this.createPeerConnection(peerId);
-    
-    // إنشاء DataChannel (المُنشئ يصنعها)
     const dataChannel = pc.createDataChannel(DATA_CHANNEL_NAME, DATA_CHANNEL_CONFIG);
     this.setupDataChannel(peerId, dataChannel);
     
-    // إنشاء Offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    
-    // إرسال Offer عبر Signaling
     this.signaling?.sendOffer(peerId, offer);
     
-    // Timeout للاتصال
     setTimeout(() => {
       const peer = this.peers.get(peerId);
       if (peer && !peer.isReady) {
@@ -250,46 +201,23 @@ export class WebRTCTransport implements Transport {
   
   // ============= Signaling Handlers =============
   
-  /**
-   * معالجة Offer من peer آخر
-   */
   private async handleOffer(from: string, offer: RTCSessionDescriptionInit): Promise<void> {
-    console.log('📥 [WebRTCTransport] Handling offer from', from);
-    
     const pc = this.createPeerConnection(from);
-    
-    // DataChannel سيتم استلامها عبر ondatachannel
-    
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    
     this.signaling?.sendAnswer(from, answer);
   }
   
-  /**
-   * معالجة Answer من peer
-   */
   private async handleAnswer(from: string, answer: RTCSessionDescriptionInit): Promise<void> {
-    console.log('📥 [WebRTCTransport] Handling answer from', from);
-    
     const peer = this.peers.get(from);
-    if (!peer) {
-      console.warn('⚠️ [WebRTCTransport] No peer found for', from);
-      return;
-    }
-    
+    if (!peer) return;
     await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
   }
   
-  /**
-   * معالجة ICE Candidate
-   */
   private async handleIceCandidate(from: string, candidate: RTCIceCandidateInit): Promise<void> {
     const peer = this.peers.get(from);
     if (!peer) return;
-    
     try {
       await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
@@ -299,9 +227,6 @@ export class WebRTCTransport implements Transport {
   
   // ============= PeerConnection Management =============
   
-  /**
-   * إنشاء RTCPeerConnection جديد
-   */
   private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(this.rtcConfig);
     
@@ -314,58 +239,36 @@ export class WebRTCTransport implements Transport {
     
     this.peers.set(peerId, peerData);
     
-    // معالجة ICE Candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         this.signaling?.sendIceCandidate(peerId, event.candidate.toJSON());
       }
     };
     
-    // معالجة حالة الاتصال
     pc.onconnectionstatechange = () => {
-      console.log('🔗 [WebRTCTransport] Connection state:', peerId, pc.connectionState);
-      
       if (pc.connectionState === 'connected') {
-        // ✅ إيقاف ICE عند نجاح الاتصال
-        console.log('✅ [WebRTCTransport] Connection established, stopping ICE for:', peerId);
         this.signaling?.stopIceForPeer(peerId);
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         this.closePeerConnection(peerId);
       }
     };
     
-    // استقبال DataChannel (للمستقبِل)
     pc.ondatachannel = (event) => {
-      console.log('📡 [WebRTCTransport] Received DataChannel from', peerId);
       this.setupDataChannel(peerId, event.channel);
     };
     
     return pc;
   }
   
-  /**
-   * إعداد DataChannel
-   */
   private setupDataChannel(peerId: string, channel: RTCDataChannel): void {
     const peer = this.peers.get(peerId);
     if (!peer) return;
     
     peer.dataChannel = channel;
     
-    channel.onopen = () => {
-      console.log('✅ [WebRTCTransport] DataChannel open with', peerId);
-      peer.isReady = true;
-    };
-    
-    channel.onclose = () => {
-      console.log('🔌 [WebRTCTransport] DataChannel closed with', peerId);
-      peer.isReady = false;
-    };
-    
-    channel.onerror = (error) => {
-      console.error('❌ [WebRTCTransport] DataChannel error with', peerId, error);
-    };
-    
+    channel.onopen = () => { peer.isReady = true; };
+    channel.onclose = () => { peer.isReady = false; };
+    channel.onerror = (error) => { console.error('❌ [WebRTCTransport] DataChannel error with', peerId, error); };
     channel.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as TransientEvent;
@@ -376,71 +279,37 @@ export class WebRTCTransport implements Transport {
     };
   }
   
-  /**
-   * إغلاق اتصال peer
-   */
   private closePeerConnection(peerId: string): void {
     const peer = this.peers.get(peerId);
     if (!peer) return;
-    
-    console.log('🔌 [WebRTCTransport] Closing connection to', peerId);
-    
     peer.dataChannel?.close();
     peer.pc.close();
     this.peers.delete(peerId);
   }
   
-  // ============= Event Handling =============
-  
-  /**
-   * معالجة الأحداث الواردة
-   */
   private handleIncomingEvent(event: TransientEvent): void {
-    // تجنب التكرار
-    if (this.processedEvents.has(event.event_id)) {
-      return;
-    }
-    
+    if (this.processedEvents.has(event.event_id)) return;
     this.processedEvents.add(event.event_id);
-    console.log('📥 [WebRTCTransport] Received:', event.type);
     
-    // إشعار المعالجات العامة
     this.handlers.forEach(handler => {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error('❌ [WebRTCTransport] Handler error:', err);
-      }
+      try { handler(event); } catch (err) { console.error('❌ [WebRTCTransport] Handler error:', err); }
     });
     
-    // إشعار المعالجات المحددة
     const typeHandlers = this.typedHandlers.get(event.type);
     if (typeHandlers) {
       typeHandlers.forEach(handler => {
-        try {
-          handler(event);
-        } catch (err) {
-          console.error('❌ [WebRTCTransport] Typed handler error:', err);
-        }
+        try { handler(event); } catch (err) { console.error('❌ [WebRTCTransport] Typed handler error:', err); }
       });
     }
   }
   
-  // ============= Health Check =============
-  
-  /**
-   * فحص صحة الاتصالات
-   */
   private startHealthCheck(): void {
     if (this.healthCheckInterval) return;
-    
     this.healthCheckInterval = setInterval(() => {
       this.peers.forEach((peer, peerId) => {
         if (!peer.isReady || peer.dataChannel?.readyState !== 'open') {
           peer.failedHealthChecks++;
-          
           if (peer.failedHealthChecks >= MAX_FAILED_HEALTH_CHECKS) {
-            console.warn('💔 [WebRTCTransport] Peer unhealthy:', peerId);
             this.closePeerConnection(peerId);
           }
         } else {
@@ -450,32 +319,20 @@ export class WebRTCTransport implements Transport {
     }, HEALTH_CHECK_INTERVAL);
   }
   
-  /**
-   * تنظيف الأحداث القديمة
-   */
   private startCleanupInterval(): void {
     if (this.cleanupInterval) return;
-    
     this.cleanupInterval = setInterval(() => {
-      const now = Date.now();
-      const cutoff = now - 30000;
-      
+      const cutoff = Date.now() - 30000;
       const newSet = new Set<string>();
       this.processedEvents.forEach(eventId => {
         const timestamp = parseInt(eventId.split('-')[0], 10);
-        if (timestamp > cutoff) {
-          newSet.add(eventId);
-        }
+        if (timestamp > cutoff) newSet.add(eventId);
       });
-      
       this.processedEvents = newSet;
     }, 10000);
   }
 }
 
-/**
- * إنشاء WebRTCTransport وبدء الاتصال
- */
 export const createWebRTCTransport = async (
   config: WebRTCTransportConfig
 ): Promise<WebRTCTransport> => {
