@@ -2,29 +2,22 @@
  * transport/peerAnnouncement.ts
  * نظام إعلان انضمام اللاعبين للـ Host
  * 
- * عندما ينضم متسابق جديد، يُرسل إعلان عبر Broadcast
- * Host يستقبل الإعلان ويُنشئ اتصال RTC مع المتسابق
+ * يدعم وضعين:
+ * 1. مدمج: يستخدم sendFn خارجية (عبر BroadcastTransport) — بدون قناة منفصلة
+ * 2. مستقل: ينشئ قناة خاصة (للتوافق القديم)
  */
 
 import { supabase } from '@/integrations/supabase/client';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { PeerAnnouncement } from './types';
 
-// ============= أنواع =============
-
-export interface PeerAnnouncement {
-  type: 'peer_joined' | 'peer_left';
-  peerId: string;
-  role: 'contestant' | 'display';
-  playerName?: string;
-  timestamp: number;
-}
+// إعادة تصدير النوع
+export type { PeerAnnouncement } from './types';
 
 export interface PeerAnnouncementHandlers {
   onPeerJoined?: (peerId: string, playerName?: string) => void;
   onPeerLeft?: (peerId: string) => void;
 }
-
-// ============= PeerAnnouncementManager =============
 
 export class PeerAnnouncementManager {
   private channel: RealtimeChannel | null = null;
@@ -32,10 +25,12 @@ export class PeerAnnouncementManager {
   private readonly channelName: string;
   private handlers: PeerAnnouncementHandlers = {};
   private isConnected = false;
+  private readonly sendFn?: (announcement: PeerAnnouncement) => void;
   
-  constructor(sessionCode: string) {
+  constructor(sessionCode: string, sendFn?: (announcement: PeerAnnouncement) => void) {
     this.sessionCode = sessionCode;
     this.channelName = `peer-announce-${sessionCode.toLowerCase()}`;
+    this.sendFn = sendFn;
   }
   
   /**
@@ -46,6 +41,14 @@ export class PeerAnnouncementManager {
     
     this.handlers = handlers;
     
+    // وضع مدمج: لا نحتاج قناة منفصلة
+    if (this.sendFn) {
+      console.log('📢 [PeerAnnouncement] Using integrated mode (no separate channel)');
+      this.isConnected = true;
+      return;
+    }
+    
+    // وضع مستقل: قناة منفصلة
     console.log('📢 [PeerAnnouncement] Listening on:', this.channelName);
     
     return new Promise((resolve, reject) => {
@@ -69,19 +72,9 @@ export class PeerAnnouncementManager {
   }
   
   /**
-   * إرسال إعلان انضمام (للمتسابق/الشاشة)
+   * إرسال إعلان انضمام
    */
   async announceJoin(peerId: string, role: 'contestant' | 'display', playerName?: string): Promise<void> {
-    if (!this.channel) {
-      // إنشاء قناة مؤقتة للإرسال
-      this.channel = supabase.channel(this.channelName);
-      await new Promise<void>((resolve) => {
-        this.channel!.subscribe((status) => {
-          if (status === 'SUBSCRIBED') resolve();
-        });
-      });
-    }
-    
     const announcement: PeerAnnouncement = {
       type: 'peer_joined',
       peerId,
@@ -91,6 +84,22 @@ export class PeerAnnouncementManager {
     };
     
     console.log('📢 [PeerAnnouncement] Announcing join:', peerId);
+    
+    // وضع مدمج
+    if (this.sendFn) {
+      this.sendFn(announcement);
+      return;
+    }
+    
+    // وضع مستقل
+    if (!this.channel) {
+      this.channel = supabase.channel(this.channelName);
+      await new Promise<void>((resolve) => {
+        this.channel!.subscribe((status) => {
+          if (status === 'SUBSCRIBED') resolve();
+        });
+      });
+    }
     
     this.channel.send({
       type: 'broadcast',
@@ -103,16 +112,23 @@ export class PeerAnnouncementManager {
    * إرسال إعلان مغادرة
    */
   announceLeave(peerId: string, role: 'contestant' | 'display'): void {
-    if (!this.channel) return;
-    
     const announcement: PeerAnnouncement = {
-      type: 'peer_left',
+      type: 'peer_joined',
       peerId,
       role,
       timestamp: Date.now(),
     };
+    // Fix: type should be 'peer_left'
+    announcement.type = 'peer_left';
     
     console.log('📢 [PeerAnnouncement] Announcing leave:', peerId);
+    
+    if (this.sendFn) {
+      this.sendFn(announcement);
+      return;
+    }
+    
+    if (!this.channel) return;
     
     this.channel.send({
       type: 'broadcast',
@@ -122,11 +138,13 @@ export class PeerAnnouncementManager {
   }
   
   /**
-   * معالجة الإعلانات الواردة
+   * معالجة إعلان وارد (يُستدعى من الخارج في الوضع المدمج)
    */
+  handleIncomingAnnouncement(announcement: PeerAnnouncement): void {
+    this.handleAnnouncement(announcement);
+  }
+  
   private handleAnnouncement(announcement: PeerAnnouncement): void {
-    console.log('📢 [PeerAnnouncement] Received:', announcement.type, announcement.peerId);
-    
     switch (announcement.type) {
       case 'peer_joined':
         this.handlers.onPeerJoined?.(announcement.peerId, announcement.playerName);
@@ -137,9 +155,6 @@ export class PeerAnnouncementManager {
     }
   }
   
-  /**
-   * إغلاق القناة
-   */
   disconnect(): void {
     if (this.channel) {
       supabase.removeChannel(this.channel);
@@ -149,9 +164,6 @@ export class PeerAnnouncementManager {
   }
 }
 
-/**
- * إنشاء مدير إعلانات للـ Host
- */
 export const createHostAnnouncementListener = async (
   sessionCode: string,
   handlers: PeerAnnouncementHandlers
