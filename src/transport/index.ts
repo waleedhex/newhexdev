@@ -28,6 +28,5 @@ export { HybridTransport, createHybridTransport } from './HybridTransport';
 export { 
   PeerAnnouncementManager, 
   createHostAnnouncementListener,
-  type PeerAnnouncement,
   type PeerAnnouncementHandlers,
 } from './peerAnnouncement';
