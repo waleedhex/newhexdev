@@ -86,33 +86,17 @@ export type TypedEventHandlers = {
 
 /**
  * واجهة النقل الموحدة
- * 
- * كل وسيلة نقل (Broadcast, WebRTC, Hybrid) تطبق هذه الواجهة
- * الـ Hooks لا تعرف نوع النقل الفعلي
  */
 export interface Transport {
-  /** نوع وسيلة النقل */
   readonly type: TransportType;
-  
-  /** حالة الاتصال الحالية */
   readonly status: TransportStatus;
-  
-  /** هل النقل جاهز للإرسال؟ */
   ready(): boolean;
-  
-  /** إرسال حدث */
   send(event: TransientEvent): void;
-  
-  /** الاشتراك في جميع الأحداث */
   subscribe(handler: EventHandler): () => void;
-  
-  /** الاشتراك في نوع محدد من الأحداث */
   on<T extends TransientEventType>(
     type: T,
     handler: EventHandler<Extract<TransientEvent, { type: T }>>
   ): () => void;
-  
-  /** إغلاق الاتصال وتنظيف الموارد */
   disconnect(): void;
 }
 
@@ -123,17 +107,20 @@ export interface BroadcastTransportConfig {
   sessionCode: string;
   /** اسم القناة (افتراضي: game-events-${sessionCode}) */
   channelName?: string;
+  /** معالج رسائل Signaling (للدمج مع game-events) */
+  onSignalingMessage?: (message: SignalingMessage) => void;
+  /** معالج إعلانات الأقران (للدمج مع game-events) */
+  onPeerAnnouncement?: (announcement: PeerAnnouncement) => void;
 }
 
 /** إعدادات WebRTC Transport */
 export interface WebRTCTransportConfig {
   sessionCode: string;
-  /** دور المستخدم */
   role: 'host' | 'contestant' | 'display';
-  /** معرف اللاعب */
   playerId?: string;
-  /** STUN/TURN servers */
   iceServers?: RTCIceServer[];
+  /** واجهة إرسال Signaling خارجية (بدلاً من إنشاء قناة منفصلة) */
+  signalingSendFn?: (msg: SignalingMessage) => void;
 }
 
 /** إعدادات Hybrid Transport */
@@ -141,18 +128,18 @@ export interface HybridTransportConfig {
   sessionCode: string;
   role: 'host' | 'contestant' | 'display';
   playerId?: string;
-  /** تفعيل WebRTC (افتراضي: true) */
   enableWebRTC?: boolean;
-  /** مهلة محاولة RTC قبل fallback (بالميلي ثانية) */
   rtcTimeout?: number;
+  /** معالج انضمام peer (للـ Host) */
+  onPeerJoined?: (peerId: string, playerName?: string) => void;
+  /** معالج مغادرة peer */
+  onPeerLeft?: (peerId: string) => void;
 }
 
 // ============= أنواع Signaling (للـ WebRTC) =============
 
-/** أنواع رسائل Signaling */
 export type SignalingType = 'offer' | 'answer' | 'ice-candidate';
 
-/** رسالة Signaling */
 export interface SignalingMessage {
   type: SignalingType;
   from: string;
@@ -161,14 +148,22 @@ export interface SignalingMessage {
   timestamp: number;
 }
 
+// ============= أنواع إعلانات الأقران =============
+
+export interface PeerAnnouncement {
+  type: 'peer_joined' | 'peer_left';
+  peerId: string;
+  role: 'contestant' | 'display';
+  playerName?: string;
+  timestamp: number;
+}
+
 // ============= دوال مساعدة =============
 
-/** توليد معرف فريد للحدث */
 export const generateEventId = (): string => {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 };
 
-/** إنشاء حدث مع metadata */
 export const createEvent = <T extends Omit<TransientEvent, 'event_id' | 'timestamp'>>(
   event: T
 ): T & EventMetadata => {
@@ -179,7 +174,6 @@ export const createEvent = <T extends Omit<TransientEvent, 'event_id' | 'timesta
   } as T & EventMetadata;
 };
 
-/** التحقق من أن الحدث من النوع المحدد */
 export const isEventType = <T extends TransientEventType>(
   event: TransientEvent,
   type: T
