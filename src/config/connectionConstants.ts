@@ -15,10 +15,10 @@
 export const HOST_HEARTBEAT_INTERVAL = 15000; // 15 ثانية
 
 /** Heartbeat للمتسابق - أبطأ لتقليل الحمل */
-export const CONTESTANT_HEARTBEAT_INTERVAL = 30000; // 30 ثانية
+export const CONTESTANT_HEARTBEAT_INTERVAL = 60000; // ✅ النقطة 8: 60 ثانية (بدلاً من 30)
 
 /** Heartbeat لشاشة العرض - الأبطأ لأنها للعرض فقط */
-export const DISPLAY_HEARTBEAT_INTERVAL = 45000; // 45 ثانية
+export const DISPLAY_HEARTBEAT_INTERVAL = 90000; // ✅ النقطة 8: 90 ثانية (بدلاً من 45)
 
 /** الـ heartbeat الافتراضي (للتوافق مع الكود القديم) */
 export const HEARTBEAT_INTERVAL = 15000; // 15 ثانية
@@ -28,10 +28,10 @@ export const HEARTBEAT_INTERVAL = 15000; // 15 ثانية
 export const HOST_INACTIVE_THRESHOLD = 45000; // 45 ثانية (3x heartbeat)
 
 /** عتبة اعتبار المتسابق منقطعاً */
-export const CONTESTANT_INACTIVE_THRESHOLD = 60000; // 60 ثانية (2x heartbeat)
+export const CONTESTANT_INACTIVE_THRESHOLD = 120000; // ✅ 120 ثانية (2x heartbeat 60s)
 
 /** عتبة اعتبار شاشة العرض منقطعة */
-export const DISPLAY_INACTIVE_THRESHOLD = 90000; // 90 ثانية (2x heartbeat)
+export const DISPLAY_INACTIVE_THRESHOLD = 180000; // ✅ 180 ثانية (2x heartbeat 90s)
 
 /** العتبة الافتراضية (للتوافق مع الكود القديم) */
 export const INACTIVE_THRESHOLD = 30000; // 30 ثانية
