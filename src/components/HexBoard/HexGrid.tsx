@@ -193,8 +193,9 @@ const HexGrid: React.FC = () => {
   // مرجع لمؤقت إيقاف الاحتفالية
   const celebrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ====== بدء احتفالية الفوز مع البث (State-driven) ======
-  // 🔴 المؤقت الوحيد في النظام - Host هو المصدر الوحيد للحقيقة
+  // ====== بدء احتفالية الفوز مع البث (Single-trigger) ======
+  // ✅ النقطة 4: طلقة واحدة فقط — بدون إرسال active=false
+  // العملاء يشغّلون مؤقت محلي 8 ثوانٍ ويوقفون التأثيرات تلقائياً
   const triggerPartyMode = useCallback((team: 'red' | 'green', path: [number, number][]) => {
     // مسح أي مؤقت سابق
     if (celebrationTimeoutRef.current) {
@@ -209,17 +210,17 @@ const HexGrid: React.FC = () => {
     // تحديث الحالة يشغّل الاحتفال تلقائياً
     triggerWinCelebration(team);
     setPartyMode(true);
+    
+    // ✅ إرسال مرة واحدة فقط (active=true)
     sendPartyMode(true, team, path);
     
-    // 🔴 بعد 8 ثواني: إرسال partyMode=false لكل الشاشات عبر قاعدة البيانات
+    // ✅ مؤقت محلي على Host أيضاً لإيقاف التأثيرات + تحديث DB
     celebrationTimeoutRef.current = setTimeout(async () => {
       console.log('⏱️ Host: إيقاف الاحتفالية بعد 8 ثواني');
       setWinningPath([]);
       stopCelebration();
-      
-      // 🔴 تحديث قاعدة البيانات ليصل التغيير لكل الشاشات
+      // تحديث DB فقط (بدون إرسال broadcast ثاني)
       await setPartyMode(false);
-      sendPartyMode(false, team, []);
     }, 8000);
   }, [triggerWinCelebration, setPartyMode, sendPartyMode, stopCelebration]);
 
