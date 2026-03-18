@@ -116,16 +116,30 @@ const ContestantPage: React.FC = () => {
     addNotification(t(getLangFromUrl(), 'timeUp'), 'timeout');
   }, [playTimeoutSound, addNotification]);
 
+  // ✅ النقطة 4: Contestant يستقبل طلقة واحدة ويشغّل مؤقت محلي 8 ثوانٍ
+  const contestantPartyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   const handlePartyMode = useCallback((event: PartyModeEvent) => {
     console.log('📡 Contestant received party mode event:', event);
-    if (event.active) {
-      setWinningPath(event.winningPath || []);
-      triggerWinCelebration(event.winningTeam);
-    } else {
-      console.log('📡 Contestant: إيقاف الاحتفالية (أمر من Host)');
+    
+    if (!event.active) return; // تجاهل أي رسالة إيقاف قديمة
+    
+    // مسح أي مؤقت سابق
+    if (contestantPartyTimeoutRef.current) {
+      clearTimeout(contestantPartyTimeoutRef.current);
+    }
+    
+    // بدء الاحتفال
+    setWinningPath(event.winningPath || []);
+    triggerWinCelebration(event.winningTeam);
+    
+    // ✅ مؤقت محلي — إيقاف تلقائي بعد 8 ثوانٍ
+    contestantPartyTimeoutRef.current = setTimeout(() => {
+      console.log('⏱️ Contestant: إيقاف الاحتفالية تلقائياً بعد 8 ثواني');
       setWinningPath([]);
       stopCelebration();
-    }
+      contestantPartyTimeoutRef.current = null;
+    }, 8000);
   }, [triggerWinCelebration, stopCelebration]);
 
   const handleGoldenCelebration = useCallback((event: GoldenCelebrationEvent) => {
