@@ -89,21 +89,30 @@ const DisplayHexGrid: React.FC<DisplayHexGridProps> = ({ playerName }) => {
     addNotification('انتهى الوقت', 'timeout');
   }, [playTimeoutSound, addNotification]);
 
-  // 🔴 Display: يستجيب للأحداث فقط - لا مؤقت محلي
-  // المؤقت الوحيد في Host، وعندما ينتهي يرسل event.active=false
+  // ✅ النقطة 4: Display يستقبل طلقة واحدة ويشغّل مؤقت محلي 8 ثوانٍ
+  const displayPartyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   const handlePartyMode = useCallback((event: PartyModeEvent) => {
     console.log('📡 Display received party mode event:', event);
     
-    if (event.active) {
-      // حفظ المسار الفائز لإظهار الوميض
-      setWinningPath(event.winningPath || []);
-      triggerWinCelebration(event.winningTeam);
-    } else {
-      // 🔴 Host أرسل إشارة الإيقاف - نتوقف فوراً
-      console.log('📡 Display: إيقاف الاحتفالية (أمر من Host)');
+    if (!event.active) return; // تجاهل أي رسالة إيقاف قديمة
+    
+    // مسح أي مؤقت سابق
+    if (displayPartyTimeoutRef.current) {
+      clearTimeout(displayPartyTimeoutRef.current);
+    }
+    
+    // بدء الاحتفال
+    setWinningPath(event.winningPath || []);
+    triggerWinCelebration(event.winningTeam);
+    
+    // ✅ مؤقت محلي — إيقاف تلقائي بعد 8 ثوانٍ
+    displayPartyTimeoutRef.current = setTimeout(() => {
+      console.log('⏱️ Display: إيقاف الاحتفالية تلقائياً بعد 8 ثواني');
       setWinningPath([]);
       stopCelebration();
-    }
+      displayPartyTimeoutRef.current = null;
+    }, 8000);
   }, [triggerWinCelebration, stopCelebration]);
 
   const handleGoldenCelebration = useCallback((event: GoldenCelebrationEvent) => {
