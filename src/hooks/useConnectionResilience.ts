@@ -68,8 +68,8 @@ export const useConnectionResilience = ({
   const [lastHeartbeat, setLastHeartbeat] = useState<Date | null>(null);
   const [writeCount, setWriteCount] = useState(0); // للمراقبة
 
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isReconnectingRef = useRef(false);
   
   // ====== الكتابة الشرطية: تتبع آخر كتابة ======
