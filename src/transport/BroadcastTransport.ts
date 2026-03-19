@@ -28,7 +28,7 @@ export class BroadcastTransport implements Transport {
   private handlers: Set<EventHandler> = new Set();
   private typedHandlers: Map<TransientEventType, Set<EventHandler>> = new Map();
   private processedEvents: Set<string> = new Set();
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   
   private readonly config: BroadcastTransportConfig;
   private readonly channelName: string;
