@@ -77,7 +77,7 @@ const HexGrid: React.FC = () => {
 
   // Refs
   
-  const winTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const winTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingWinRef = useRef<{ color: 'red' | 'green'; path: [number, number][] } | null>(null);
 
   // ====== التأثيرات البصرية الفورية ======
@@ -191,7 +191,7 @@ const HexGrid: React.FC = () => {
   }, [cancelPendingWin, stopCelebration]);
 
   // مرجع لمؤقت إيقاف الاحتفالية
-  const celebrationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const celebrationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ====== بدء احتفالية الفوز مع البث (Single-trigger) ======
   // ✅ النقطة 4: طلقة واحدة فقط — بدون إرسال active=false
