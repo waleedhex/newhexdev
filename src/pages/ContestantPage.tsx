@@ -473,7 +473,7 @@ const ContestantPage: React.FC = () => {
   }
 
   const isMyBuzzer = buzzer.active && buzzer.player === decodedName;
-  const canPressBuzzer = sessionId && team && !buzzer.active && !isPressing && !isBuzzerTemporarilyDisabled;
+  const canPressBuzzer = sessionId && team && !isPressing && !isBuzzerTemporarilyDisabled;
 
   const lang = getLangFromUrl();
 
