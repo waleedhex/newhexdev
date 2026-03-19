@@ -170,7 +170,7 @@ export const useTransport = ({
     if (!sessionCode) return;
     
     let mounted = true;
-    let statsInterval: NodeJS.Timeout | null = null;
+    let statsInterval: ReturnType<typeof setInterval> | null = null;
     
     const connect = async () => {
       try {
