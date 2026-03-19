@@ -61,8 +61,8 @@ export class HybridTransport implements Transport {
   private typedHandlers: Map<TransientEventType, Set<EventHandler>> = new Map();
   
   private processedEvents: Set<string> = new Set();
-  private cleanupInterval: NodeJS.Timeout | null = null;
-  private rtcRetryTimeout: NodeJS.Timeout | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private rtcRetryTimeout: ReturnType<typeof setTimeout> | null = null;
   
   constructor(config: HybridTransportConfig) {
     this.config = config;
