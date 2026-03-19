@@ -89,9 +89,48 @@ export const useContestantChannel = ({
   onKicked,
 }: UseContestantChannelProps) => {
   const [isConnected, setIsConnected] = useState(false);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastTeamRef = useRef<string | null>(null);
   const lastBuzzerRef = useRef<string>('');
+  // فترة حماية: بعد تحديث فوري من Broadcast، نتجاهل polling لمدة 8 ثواني
+  const buzzerGraceUntilRef = useRef<number>(0);
+
+  // مرجع لـ onBuzzerChange لاستخدامه داخل callbacks بدون إعادة إنشاء
+  const onBuzzerChangeRef = useRef(onBuzzerChange);
+  onBuzzerChangeRef.current = onBuzzerChange;
+
+  // ====== تحديث فوري للجرس من أحداث Broadcast ======
+  const handleBuzzerPressedWithState = useCallback((event: BuzzerPressedEvent) => {
+    // ✅ تحديث حالة الجرس فوراً بدون انتظار polling
+    const instantBuzzer: BuzzerData = {
+      active: true,
+      player: event.player,
+      team: event.team,
+      timestamp: event.timestamp,
+      isTimeOut: false,
+    };
+    lastBuzzerRef.current = JSON.stringify(instantBuzzer);
+    buzzerGraceUntilRef.current = Date.now() + 8000; // حماية من polling
+    onBuzzerChangeRef.current?.(instantBuzzer);
+    
+    // ثم تمرير الحدث للمعالج الأصلي
+    onBuzzerPressed?.(event);
+  }, [onBuzzerPressed]);
+
+  const handleBuzzerTimeoutWithState = useCallback((event: BuzzerTimeoutEvent) => {
+    // ✅ تحديث حالة الجرس فوراً — انتهى الوقت
+    const instantBuzzer: BuzzerData = {
+      active: false,
+      player: '',
+      team: null,
+      isTimeOut: true,
+    };
+    lastBuzzerRef.current = JSON.stringify(instantBuzzer);
+    buzzerGraceUntilRef.current = Date.now() + 8000; // حماية من polling
+    onBuzzerChangeRef.current?.(instantBuzzer);
+    
+    onBuzzerTimeout?.(event);
+  }, [onBuzzerTimeout]);
 
   // ====== useTransport للأحداث العابرة ======
   const {
@@ -104,8 +143,8 @@ export const useContestantChannel = ({
     role: 'contestant',
     playerId: playerId || undefined,
     playerName,
-    onBuzzerPressed,
-    onBuzzerTimeout,
+    onBuzzerPressed: handleBuzzerPressedWithState,
+    onBuzzerTimeout: handleBuzzerTimeoutWithState,
     onPartyMode,
     onGoldenCelebration,
     onFlash,
@@ -183,7 +222,12 @@ export const useContestantChannel = ({
         }
       }
 
-      // 2️⃣ جلب buzzer فقط (ليس hexagons!)
+      // 2️⃣ جلب buzzer فقط (ليس hexagons!) — مع فترة حماية
+      if (Date.now() < buzzerGraceUntilRef.current) {
+        // ✅ تخطي polling للجرس أثناء فترة الحماية (broadcast أحدث)
+        return;
+      }
+
       const { data: sessionData } = await supabase
         .from('game_sessions')
         .select('buzzer')
@@ -194,7 +238,6 @@ export const useContestantChannel = ({
         const buzzer = parseBuzzer(sessionData.buzzer);
         const buzzerKey = JSON.stringify(buzzer);
 
-        // إرسال التحديث فقط إذا تغيرت الحالة
         if (buzzerKey !== lastBuzzerRef.current) {
           lastBuzzerRef.current = buzzerKey;
           onBuzzerChange?.(buzzer);
