@@ -68,7 +68,7 @@ export const useDebouncedBoardState = ({
 
   // Debounce refs
   const pendingUpdateRef = useRef<BoardState | null>(null);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ====== تطبيق التحديث مع Debounce ======
   const applyDebouncedUpdate = useCallback((newState: BoardState) => {
