@@ -38,12 +38,12 @@ const TeamPlayersPanel: React.FC<TeamPlayersPanelProps> = ({
 }) => {
   const lang = getLangFromUrl();
   const [players, setPlayers] = useState<Player[]>([]);
-  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pressingPlayerId, setPressingPlayerId] = useState<string | null>(null);
   const [movingPlayerId, setMovingPlayerId] = useState<string | null>(null);
   const [kickDialogOpen, setKickDialogOpen] = useState(false);
   const [playerToKick, setPlayerToKick] = useState<{ id: string; name: string } | null>(null);
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isPlayerActive = useCallback((player: Player): boolean => {
     if (!player.last_seen) return player.is_connected;
