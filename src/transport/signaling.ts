@@ -46,7 +46,7 @@ export class SignalingManager {
   // ICE Rate Limiting
   private iceCandidateCount: Map<string, number> = new Map();
   private iceStoppedForPeer: Set<string> = new Set();
-  private iceTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private iceTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
   
   constructor(config: SignalingManagerConfig) {
     this.peerId = config.peerId;
