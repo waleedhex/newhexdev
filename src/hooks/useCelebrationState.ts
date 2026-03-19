@@ -57,10 +57,10 @@ export const useCelebrationState = ({
 
   // ====== المراجع ======
   const flashIdRef = useRef(0);
-  const partyIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const partyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const goldenIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const goldenTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const partyIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const partyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const goldenIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const goldenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // لمنع إعادة تشغيل احتفالية الفوز طالما partyMode ما زال true
   const prevPartyModeRef = useRef(false);
