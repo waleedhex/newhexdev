@@ -54,7 +54,7 @@ export const useRoomSubscription = ({
 }: UseRoomSubscriptionProps): RoomSubscriptionReturn => {
   const [status, setStatus] = useState<SubscriptionStatus>('disconnected');
   const channelRef = useRef<RealtimeChannel | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // تنظيف القناة
   const cleanupChannel = useCallback(() => {
