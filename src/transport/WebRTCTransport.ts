@@ -50,8 +50,8 @@ export class WebRTCTransport implements Transport {
   private typedHandlers: Map<TransientEventType, Set<EventHandler>> = new Map();
   private processedEvents: Set<string> = new Set();
   
-  private healthCheckInterval: NodeJS.Timeout | null = null;
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   
   constructor(config: WebRTCTransportConfig) {
     this.sessionCode = config.sessionCode;
