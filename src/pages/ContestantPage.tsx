@@ -51,7 +51,7 @@ const ContestantPage: React.FC = () => {
   const [buzzerDisabledUntil, setBuzzerDisabledUntil] = useState<number>(0);
   const [winningPath, setWinningPath] = useState<[number, number][]>([]);
   
-  const timeoutShownRef = useRef(false);
+  
 
   // ====== استخدام Hook القراءة فقط ======
   const { 
@@ -106,15 +106,11 @@ const ContestantPage: React.FC = () => {
     setBuzzerDisabledUntil(Date.now() + 6000);
   }, [playBellSound, flashScreen, addNotification]);
 
-  const handleBuzzerTimeout = useCallback((event: BuzzerTimeoutEvent) => {
-    const now = Date.now();
-    const last = lastTimeoutEventRef.current;
-    if (last && (last.eventId === event.event_id || now - last.timestamp < 3000)) return;
-    lastTimeoutEventRef.current = { eventId: event.event_id, timestamp: now };
-
-    playTimeoutSound();
-    addNotification(t(getLangFromUrl(), 'timeUp'), 'timeout');
-  }, [playTimeoutSound, addNotification]);
+  const handleBuzzerTimeout = useCallback((_event: BuzzerTimeoutEvent) => {
+    // ✅ التايمر المحلي يتكفل بالتوست والصوت — لا حاجة لتكرارهما من broadcast
+    // فقط نسجل الحدث للـ dedup
+    lastTimeoutEventRef.current = { eventId: _event.event_id, timestamp: Date.now() };
+  }, []);
 
   // ✅ النقطة 4: Contestant يستقبل طلقة واحدة ويشغّل مؤقت محلي 8 ثوانٍ
   const contestantPartyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,15 +143,9 @@ const ContestantPage: React.FC = () => {
     triggerGoldenCelebration();
   }, [triggerGoldenCelebration]);
 
-  // ====== معالج تغيير الـ Buzzer ======
+  // ====== معالج تغيير الـ Buzzer (من polling — للمزامنة فقط) ======
   const handleBuzzerChange = useCallback((newBuzzer: BuzzerData) => {
     setBuzzer(newBuzzer);
-    if (newBuzzer.isTimeOut && !timeoutShownRef.current) {
-      timeoutShownRef.current = true;
-    }
-    if (!newBuzzer.isTimeOut && !newBuzzer.active) {
-      timeoutShownRef.current = false;
-    }
   }, []);
 
   // ====== معالج تغيير الفريق ======
@@ -370,52 +360,52 @@ const ContestantPage: React.FC = () => {
   // ====== القنوات القديمة تم استبدالها بـ useContestantChannel ======
   // تم دمج الاشتراكات في قناة موحدة لتقليل استهلاك الموارد
 
-  // Timer to reset buzzer after 6 seconds
-  useEffect(() => {
-    if (!buzzer.active || !sessionId) return;
-    
-    const resetTimer = setTimeout(async () => {
-      if (buzzer.player !== decodedName) return;
-      
-      sendBuzzerTimeout();
-
-      // Atomic reset with timeout flag
-      await (supabase.rpc as any)('reset_buzzer', {
-        p_session_id: sessionId,
-        p_is_timeout: true,
-      });
-
-      if (!timeoutShownRef.current) {
-        timeoutShownRef.current = true;
-      addNotification(t(getLangFromUrl(), 'timeUp'), 'timeout');
-      }
-      
-      // Clear timeout flag after 500ms
-      setTimeout(async () => {
-        await (supabase.rpc as any)('reset_buzzer', {
-          p_session_id: sessionId,
-          p_is_timeout: false,
-        });
-        timeoutShownRef.current = false;
-      }, 500);
-    }, 6000);
-
-    return () => clearTimeout(resetTimer);
-  }, [buzzer.active, buzzer.player, sessionId, addNotification, sendBuzzerTimeout, decodedName, playTimeoutSound]);
+  // ====== تايمر محلي 100% — لا يعتمد على السيرفر ======
+  // عندما يُضبط buzzerDisabledUntil، نبدأ عد تنازلي محلي 6 ثواني
+  // عند الانتهاء: نعيد الجرس + نرسل timeout + نريست السيرفر
+  const buzzerResetOwnerRef = useRef<boolean>(false); // هل أنا من ضغط؟
 
   const isBuzzerTemporarilyDisabled = Date.now() < buzzerDisabledUntil;
 
   useEffect(() => {
-    if (buzzerDisabledUntil > Date.now()) {
-      const timeout = setTimeout(() => {
-        setBuzzerDisabledUntil(0);
-      }, buzzerDisabledUntil - Date.now());
-      return () => clearTimeout(timeout);
-    }
-  }, [buzzerDisabledUntil]);
+    if (buzzerDisabledUntil <= Date.now()) return;
+
+    const remaining = buzzerDisabledUntil - Date.now();
+
+    const timeout = setTimeout(async () => {
+      // إعادة تفعيل الجرس
+      setBuzzerDisabledUntil(0);
+
+      // توست + صوت انتهاء الوقت (للجميع محلياً)
+      playTimeoutSound();
+      addNotification(t(getLangFromUrl(), 'timeUp'), 'timeout');
+
+      // فقط صاحب الضغطة يرسل timeout ويريست السيرفر
+      if (buzzerResetOwnerRef.current && sessionId) {
+        buzzerResetOwnerRef.current = false;
+        sendBuzzerTimeout();
+
+        // Atomic reset
+        await (supabase.rpc as any)('reset_buzzer', {
+          p_session_id: sessionId,
+          p_is_timeout: true,
+        });
+
+        // Clear timeout flag after 500ms
+        setTimeout(async () => {
+          await (supabase.rpc as any)('reset_buzzer', {
+            p_session_id: sessionId,
+            p_is_timeout: false,
+          });
+        }, 500);
+      }
+    }, remaining);
+
+    return () => clearTimeout(timeout);
+  }, [buzzerDisabledUntil, sessionId, sendBuzzerTimeout, playTimeoutSound, addNotification]);
 
   const handlePressBuzzer = async () => {
-    if (!sessionId || !team || buzzer.active || isPressing || isBuzzerTemporarilyDisabled) return;
+    if (!sessionId || !team || isPressing || isBuzzerTemporarilyDisabled) return;
 
     setIsPressing(true);
 
@@ -451,6 +441,7 @@ const ContestantPage: React.FC = () => {
       addNotification(`${decodedName} ${t(lang, 'buzzerPlayerFrom')} ${teamName}`, 'buzzer', team);
       // تسجيل الحدث المحلي لمنع تكرار التنبيه عند استلام نفس الحدث من Transport
       lastBuzzerEventRef.current = { eventId: 'local-' + Date.now(), timestamp: Date.now() };
+      buzzerResetOwnerRef.current = true; // أنا من ضغط — أنا أريست السيرفر
       setBuzzerDisabledUntil(Date.now() + 6000);
     } catch (err) {
       console.error('Buzzer error:', err);
