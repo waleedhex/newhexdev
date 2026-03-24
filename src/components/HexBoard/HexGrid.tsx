@@ -23,6 +23,7 @@ import { usePlayerStatusNotifications } from '@/hooks/usePlayerStatusNotificatio
 import { supabase } from '@/integrations/supabase/client';
 import { findWinningPath, pathsMatch } from '@/gameEngine';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
+import { useLandscape } from '@/hooks/useLandscape';
 
 const HexGrid: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -31,6 +32,7 @@ const HexGrid: React.FC = () => {
 
   // إعادة التوجيه عند انتهاء صلاحية الجلسة
   useSessionExpiry(sessionCode);
+  const isLandscape = useLandscape();
   
   // ====== استخدام Hook القراءة ======
   const { 
@@ -442,109 +444,162 @@ const HexGrid: React.FC = () => {
     );
   }
 
+  // Landscape: use vh-based sizing for hex grid
+  // Landscape: mirror DisplayHexGrid's vh-based approach for distortion-free hexagons
+  const hexSizeBase = isLandscape ? '92vh' : '90vw';
+
   return (
     <div 
-      className="flex flex-col items-center justify-start min-h-screen bg-background p-[1vw] pb-16 w-full box-border font-tajawal overflow-auto relative transition-colors duration-100" 
+      className={`min-h-screen bg-background w-full box-border font-tajawal relative transition-colors duration-100 ${
+        isLandscape 
+          ? 'flex flex-row items-start p-0 gap-0 overflow-hidden h-screen' 
+          : 'flex flex-col items-center justify-start p-[1vw] pb-16 overflow-auto'
+      }`}
       dir="rtl"
       style={getScreenBackground()}
     >
-      {/* Zoom slider - large screens only */}
-      <div className="hidden lg:flex items-center gap-3 mb-2 w-full max-w-2xl lg:max-w-none justify-center">
-        <span className="text-foreground text-sm select-none">−</span>
-        <input
-          type="range"
-          min={50}
-          max={150}
-          value={zoomLevel}
-          onChange={(e) => setZoomLevel(Number(e.target.value))}
-          className="w-48 accent-primary cursor-pointer"
-        />
-        <span className="text-foreground text-sm select-none">+</span>
-        <span className="text-muted-foreground text-xs select-none">{zoomLevel}%</span>
-      </div>
-
-      <div
-        className="w-full max-w-2xl lg:max-w-none mx-auto p-0 bg-card rounded-[1vw] shadow-[0_0.4vw_0.8vw_rgba(0,0,0,0.3)] overflow-hidden flex flex-col items-center relative"
-        style={{
-          transform: `scale(${zoomLevel / 100})`,
-          transformOrigin: 'top center',
-        }}
+      {/* ===== LEFT SIDE: Board + Controls ===== */}
+      <div className={`flex flex-col items-center ${
+        isLandscape 
+          ? 'flex-shrink-0 justify-center h-full overflow-hidden' 
+          : 'w-full'
+      }`}
       >
-        <Confetti active={showParty} />
-        <PartyText visible={showParty} textColor={partyTextColor} text={t(lang, 'congratsText')} />
-        <GoldenText visible={showGoldenCelebration} text={t(lang, 'goldenLetterText')} />
-        {partyFlashes.map(flash => (
-          <FlashEffect key={flash.id} left={flash.left} top={flash.top} color={flash.color} />
-        ))}
-        {goldenFlashes.map(flash => (
-          <FlashEffect key={flash.id} left={flash.left} top={flash.top} color={flash.color} />
-        ))}
 
-        {cells.map((row, rowIndex) => (
-          <div
-            key={rowIndex}
-            className="flex justify-center"
-            style={{
-              gap: 'calc(90vw / 100)',
-              marginTop: rowIndex !== 0 ? 'calc(-90vw / 35)' : 0,
-              marginRight: rowIndex % 2 === 0 ? 'calc(0.5 * (90vw / 7) + (90vw / 200))' : 0,
-              marginLeft: rowIndex % 2 === 1 ? 'calc(0.5 * (90vw / 7) + (90vw / 200))' : 0
-            }}
-          >
-          {row.map((cell, colIndex) => (
-              <Hexagon
-                key={colIndex}
-                letter={cell.letter}
-                backgroundColor={cell.color}
-                isWinning={isInWinningPath(rowIndex, colIndex)}
-                winAnimationDelay={getWinAnimationDelay(rowIndex, colIndex)}
-                isFixed={cell.isFixed}
-                fixedType={cell.fixedType}
-                clipClass={cell.clipClass}
-                onClick={() => handleHexClick(rowIndex, colIndex)}
-              />
-            ))}
+        {/* Zoom slider - large screens only (hidden in landscape) */}
+        {!isLandscape && (
+          <div className="hidden lg:flex items-center gap-3 mb-2 w-full max-w-2xl lg:max-w-none justify-center">
+            <span className="text-foreground text-sm select-none">−</span>
+            <input
+              type="range"
+              min={50}
+              max={150}
+              value={zoomLevel}
+              onChange={(e) => setZoomLevel(Number(e.target.value))}
+              className="w-48 accent-primary cursor-pointer"
+            />
+            <span className="text-foreground text-sm select-none">+</span>
+            <span className="text-muted-foreground text-xs select-none">{zoomLevel}%</span>
           </div>
-        ))}
+        )}
+
+        <div
+          className={`p-0 bg-card rounded-[1vh] shadow-[0_0.4vh_0.8vh_rgba(0,0,0,0.3)] overflow-hidden flex flex-col items-center relative ${
+            isLandscape ? '' : 'w-full max-w-2xl lg:max-w-none mx-auto'
+          }`}
+          style={isLandscape ? {
+            width: 'calc(7 * (92vh / 7) + 6 * (92vh / 200))',
+          } : {
+            transform: `scale(${zoomLevel / 100})`,
+            transformOrigin: 'top center',
+          }}
+        >
+          <Confetti active={showParty} />
+          <PartyText visible={showParty} textColor={partyTextColor} text={t(lang, 'congratsText')} />
+          <GoldenText visible={showGoldenCelebration} text={t(lang, 'goldenLetterText')} />
+          {partyFlashes.map(flash => (
+            <FlashEffect key={flash.id} left={flash.left} top={flash.top} color={flash.color} />
+          ))}
+          {goldenFlashes.map(flash => (
+            <FlashEffect key={flash.id} left={flash.left} top={flash.top} color={flash.color} />
+          ))}
+
+          {cells.map((row, rowIndex) => (
+            <div
+              key={rowIndex}
+              className="flex justify-center"
+              style={{
+                gap: `calc(${hexSizeBase} / 100)`,
+                marginTop: rowIndex !== 0 ? `calc(-${hexSizeBase} / 35)` : 0,
+                marginRight: rowIndex % 2 === 0 ? `calc(0.5 * (${hexSizeBase} / 7) + (${hexSizeBase} / 200))` : 0,
+                marginLeft: rowIndex % 2 === 1 ? `calc(0.5 * (${hexSizeBase} / 7) + (${hexSizeBase} / 200))` : 0
+              }}
+            >
+              {row.map((cell, colIndex) => (
+                <Hexagon
+                  key={colIndex}
+                  letter={cell.letter}
+                  backgroundColor={cell.color}
+                  isWinning={isInWinningPath(rowIndex, colIndex)}
+                  winAnimationDelay={getWinAnimationDelay(rowIndex, colIndex)}
+                  isFixed={cell.isFixed}
+                  fixedType={cell.fixedType}
+                  clipClass={cell.clipClass}
+                  onClick={() => handleHexClick(rowIndex, colIndex)}
+                  sizeUnit={isLandscape ? 'vh' : 'vw'}
+                  sizeBase={hexSizeBase}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Control Buttons — below board (portrait only) */}
+        {!isLandscape && (
+          <ControlButtons
+            onShuffle={shuffle}
+            onSwapColors={swapColors}
+            onChangeColors={changeColors}
+            onParty={() => triggerPartyMode('red', [])}
+            sessionCode={sessionCode}
+            buzzer={null}
+            redColor={getRedColor()}
+            greenColor={getGreenColor()}
+            goldenLetterEnabled={goldenLetterEnabled}
+            onToggleGoldenLetter={() => setGoldenLetterEnabled(!goldenLetterEnabled)}
+            isLandscape={false}
+          />
+        )}
       </div>
 
-      {/* التنبيهات الآن تُدار بواسطة Toast في Toaster component */}
+      {/* ===== RIGHT SIDE: Controls + Questions + Teams (scrollable) ===== */}
+      <div className={`${
+        isLandscape 
+          ? 'flex-1 min-w-0 overflow-y-auto overflow-x-hidden py-1 px-1 flex flex-col gap-1 justify-center' 
+          : 'w-full flex flex-col items-center'
+      }`}
+        style={isLandscape ? { height: '100vh', maxHeight: '100vh' } : undefined}
+      >
+        {/* Control Buttons — top of sidebar (landscape only) */}
+        {isLandscape && (
+          <ControlButtons
+            onShuffle={shuffle}
+            onSwapColors={swapColors}
+            onChangeColors={changeColors}
+            onParty={() => triggerPartyMode('red', [])}
+            sessionCode={sessionCode}
+            buzzer={null}
+            redColor={getRedColor()}
+            greenColor={getGreenColor()}
+            goldenLetterEnabled={goldenLetterEnabled}
+            onToggleGoldenLetter={() => setGoldenLetterEnabled(!goldenLetterEnabled)}
+            isLandscape={true}
+          />
+        )}
+        <QuestionPanel
+          letter={currentQuestionLetter}
+          question={currentQuestion}
+          answer={currentAnswer}
+          onNext={() => {
+            if (currentQuestionLetter) {
+              fetchQuestion(currentQuestionLetter);
+            }
+          }}
+          loading={questionLoading}
+          useGeneralQuestions={useGeneralQuestions}
+          onToggleQuestionType={() => setUseGeneralQuestions(!useGeneralQuestions)}
+          isLandscape={isLandscape}
+        />
 
-      <ControlButtons
-        onShuffle={shuffle}
-        onSwapColors={swapColors}
-        onChangeColors={changeColors}
-        onParty={() => triggerPartyMode('red', [])}
-        sessionCode={sessionCode}
-        buzzer={null}
-        redColor={getRedColor()}
-        greenColor={getGreenColor()}
-        goldenLetterEnabled={goldenLetterEnabled}
-        onToggleGoldenLetter={() => setGoldenLetterEnabled(!goldenLetterEnabled)}
-      />
+        {!useGeneralQuestions && <AddQuestionPanel sessionCode={sessionCode} selectedLetter={currentQuestionLetter} isLandscape={isLandscape} />}
 
-      <QuestionPanel
-        letter={currentQuestionLetter}
-        question={currentQuestion}
-        answer={currentAnswer}
-        onNext={() => {
-          if (currentQuestionLetter) {
-            fetchQuestion(currentQuestionLetter);
-          }
-        }}
-        loading={questionLoading}
-        useGeneralQuestions={useGeneralQuestions}
-        onToggleQuestionType={() => setUseGeneralQuestions(!useGeneralQuestions)}
-      />
-
-      {!useGeneralQuestions && <AddQuestionPanel sessionCode={sessionCode} selectedLetter={currentQuestionLetter} />}
-
-      {/* صندوقي الفرق */}
-      <TeamPlayersPanel
-        sessionId={sessionId}
-        redColor={getRedColor()}
-        greenColor={getGreenColor()}
-      />
+        <TeamPlayersPanel
+          sessionId={sessionId}
+          redColor={getRedColor()}
+          greenColor={getGreenColor()}
+          isLandscape={isLandscape}
+        />
+      </div>
     </div>
   );
 };
