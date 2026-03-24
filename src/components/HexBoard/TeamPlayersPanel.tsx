@@ -26,6 +26,7 @@ interface TeamPlayersPanelProps {
   sessionId: string | null;
   redColor: string;
   greenColor: string;
+  isLandscape?: boolean;
 }
 
 const LONG_PRESS_DURATION = 500;
@@ -35,6 +36,7 @@ const TeamPlayersPanel: React.FC<TeamPlayersPanelProps> = ({
   sessionId,
   redColor,
   greenColor,
+  isLandscape = false,
 }) => {
   const lang = getLangFromUrl();
   const [players, setPlayers] = useState<Player[]>([]);
@@ -149,10 +151,10 @@ const TeamPlayersPanel: React.FC<TeamPlayersPanelProps> = ({
   if (!sessionId) return null;
 
   return (
-    <div className="w-full max-w-2xl mx-auto mt-4">
+    <div className={`w-full mx-auto ${isLandscape ? '' : 'max-w-2xl mt-4'}`}>
       <div className="flex flex-col gap-3">
         {/* Red team */}
-        <div className="relative p-3 rounded-xl border-2 min-h-[60px]" style={{ borderColor: redColor, backgroundColor: `${redColor}15` }}>
+        <div className={`relative rounded-xl border-2 ${isLandscape ? 'p-2 min-h-[36px]' : 'p-3 min-h-[60px]'}`} style={{ borderColor: redColor, backgroundColor: `${redColor}15` }}>
           <span className="absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: redColor }}>
             {redTeamPlayers.length}
             {inactiveRedPlayers.length > 0 && <span className="opacity-60"> (+{inactiveRedPlayers.length})</span>}
@@ -170,7 +172,7 @@ const TeamPlayersPanel: React.FC<TeamPlayersPanelProps> = ({
         </div>
 
         {/* Green team */}
-        <div className="relative p-3 rounded-xl border-2 min-h-[60px]" style={{ borderColor: greenColor, backgroundColor: `${greenColor}15` }}>
+        <div className={`relative rounded-xl border-2 ${isLandscape ? 'p-2 min-h-[36px]' : 'p-3 min-h-[60px]'}`} style={{ borderColor: greenColor, backgroundColor: `${greenColor}15` }}>
           <span className="absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: greenColor }}>
             {greenTeamPlayers.length}
             {inactiveGreenPlayers.length > 0 && <span className="opacity-60"> (+{inactiveGreenPlayers.length})</span>}
