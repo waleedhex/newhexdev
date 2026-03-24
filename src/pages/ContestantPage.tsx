@@ -16,6 +16,7 @@ import { validateSubscriptionCode, createOrResumeSession } from '@/hooks/useRoom
 import { useConnectionResilience } from '@/hooks/useConnectionResilience';
 import ConnectionStatus from '@/components/ConnectionStatus';
 import { useSessionExpiry } from '@/hooks/useSessionExpiry';
+import { useLandscape } from '@/hooks/useLandscape';
 
 // Helper function للتحميل الأولي
 const parseBuzzerData = (data: Json | null): BuzzerData => {
@@ -41,7 +42,7 @@ const ContestantPage: React.FC = () => {
 
   // إعادة التوجيه عند انتهاء صلاحية الجلسة
   useSessionExpiry(code);
-
+  const isLandscape = useLandscape();
   const [isLoading, setIsLoading] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
@@ -468,88 +469,121 @@ const ContestantPage: React.FC = () => {
 
   const lang = getLangFromUrl();
 
+  const hexSizeBase = isLandscape ? '92vh' : '90vw';
+
   return (
     <div 
-      className="flex flex-col items-center min-h-screen p-2 font-tajawal transition-colors duration-100 overflow-auto bg-background"
+      className={`min-h-screen font-tajawal transition-colors duration-100 bg-background ${
+        isLandscape
+          ? 'flex flex-row items-start p-0 gap-0 overflow-hidden h-screen'
+          : 'flex flex-col items-center p-2 overflow-auto'
+      }`}
       dir={isRtl(lang) ? 'rtl' : 'ltr'}
       style={getScreenBackground()}
     >
       {/* Connection Status Banner */}
-      <ConnectionStatus
-        status={connectionStatus}
-        reconnectAttempt={reconnectAttempt}
-        maxAttempts={maxAttempts}
-        isOnline={isOnline}
-        onRetry={forceReconnect}
-      />
-      {/* Hex Grid */}
-      <div
-        dir="rtl"
-        className="p-0 bg-card rounded-[1vw] shadow-[0_0.4vw_0.8vw_rgba(0,0,0,0.3)] overflow-hidden flex flex-col items-center relative pointer-events-none flex-shrink-0"
-        style={{
-          width: 'calc(7 * (90vw / 7) + 6 * (90vw / 200))'
-        }}
-      >
-        <Confetti active={showParty} />
-        <PartyText visible={showParty} textColor={partyTextColor} />
-        <GoldenText visible={showGoldenCelebration} />
-        
-        {cells.map((row, rowIndex) => (
-          <div
-            key={rowIndex}
-            className="flex justify-center"
-            style={{
-              gap: 'calc(90vw / 100)',
-              marginTop: rowIndex !== 0 ? 'calc(-90vw / 35)' : 0,
-              marginRight: rowIndex % 2 === 0 ? 'calc(0.5 * (90vw / 7) + (90vw / 200))' : 0,
-              marginLeft: rowIndex % 2 === 1 ? 'calc(0.5 * (90vw / 7) + (90vw / 200))' : 0
-            }}
-          >
-            {row.map((cell, colIndex) => (
-              <Hexagon
-                key={colIndex}
-                letter={cell.letter}
-                backgroundColor={cell.color}
-                isWinning={isInWinningPath(rowIndex, colIndex)}
-                winAnimationDelay={getWinAnimationDelay(rowIndex, colIndex)}
-                isFixed={cell.isFixed}
-                fixedType={cell.fixedType}
-                clipClass={cell.clipClass}
-                onClick={() => {}}
-                sizeUnit="vw"
-              />
-            ))}
-          </div>
-        ))}
+      {!isLandscape && (
+        <ConnectionStatus
+          status={connectionStatus}
+          reconnectAttempt={reconnectAttempt}
+          maxAttempts={maxAttempts}
+          isOnline={isOnline}
+          onRetry={forceReconnect}
+        />
+      )}
+
+      {/* ===== LEFT: Hex Grid ===== */}
+      <div className={`flex items-center justify-center ${
+        isLandscape ? 'flex-shrink-0 h-full overflow-hidden' : ''
+      }`}>
+        <div
+          dir="rtl"
+          className="p-0 bg-card rounded-[1vh] shadow-[0_0.4vh_0.8vh_rgba(0,0,0,0.3)] overflow-hidden flex flex-col items-center relative pointer-events-none flex-shrink-0"
+          style={isLandscape ? {
+            width: 'calc(7 * (92vh / 7) + 6 * (92vh / 200))',
+          } : undefined}
+        >
+          <Confetti active={showParty} />
+          <PartyText visible={showParty} textColor={partyTextColor} />
+          <GoldenText visible={showGoldenCelebration} />
+          
+          {cells.map((row, rowIndex) => (
+            <div
+              key={rowIndex}
+              className="flex justify-center"
+              style={{
+                gap: `calc(${hexSizeBase} / 100)`,
+                marginTop: rowIndex !== 0 ? `calc(-${hexSizeBase} / 35)` : 0,
+                marginRight: rowIndex % 2 === 0 ? `calc(0.5 * (${hexSizeBase} / 7) + (${hexSizeBase} / 200))` : 0,
+                marginLeft: rowIndex % 2 === 1 ? `calc(0.5 * (${hexSizeBase} / 7) + (${hexSizeBase} / 200))` : 0
+              }}
+            >
+              {row.map((cell, colIndex) => (
+                <Hexagon
+                  key={colIndex}
+                  letter={cell.letter}
+                  backgroundColor={cell.color}
+                  isWinning={isInWinningPath(rowIndex, colIndex)}
+                  winAnimationDelay={getWinAnimationDelay(rowIndex, colIndex)}
+                  isFixed={cell.isFixed}
+                  fixedType={cell.fixedType}
+                  clipClass={cell.clipClass}
+                  onClick={() => {}}
+                  sizeUnit={isLandscape ? 'vh' : 'vw'}
+                  sizeBase={hexSizeBase}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Player Info & Buzzer */}
-      <div className="flex flex-col items-center gap-3 flex-1 justify-center py-4">
-        <p className="text-lg text-foreground">
-          {decodedName} - {t(lang, 'youAreInTeam')} {team === 'red' ? t(lang, 'redTeamFull') : t(lang, 'greenTeamFull')}
-        </p>
+      {/* ===== RIGHT: Player Info & Buzzer ===== */}
+      <div className={`flex flex-col items-center justify-center ${
+        isLandscape 
+          ? 'flex-1 min-w-0 h-full overflow-y-auto py-2 px-2 gap-3' 
+          : 'flex-1 py-4 gap-2'
+      }`}>
+        {isLandscape && (
+          <ConnectionStatus
+            status={connectionStatus}
+            reconnectAttempt={reconnectAttempt}
+            maxAttempts={maxAttempts}
+            isOnline={isOnline}
+            onRetry={forceReconnect}
+          />
+        )}
+
+        <div className={`bg-card/50 rounded-xl border border-border text-center ${isLandscape ? 'px-3 py-2 w-full' : 'px-4 py-3'}`}>
+          <p className={`text-foreground font-bold ${isLandscape ? 'text-sm' : 'text-lg'}`}>
+            {decodedName}
+          </p>
+          <p className={`font-medium ${isLandscape ? 'text-xs' : 'text-base'}`} style={{ color: team === 'red' ? 'hsl(var(--hex-red))' : 'hsl(var(--hex-green))' }}>
+            {team === 'red' ? t(lang, 'redTeamFull') : t(lang, 'greenTeamFull')}
+          </p>
+        </div>
 
         <button
           onClick={handlePressBuzzer}
           disabled={!canPressBuzzer}
           className={`
-            w-52 h-52 rounded-full
-            flex flex-col items-center justify-center gap-2
-            text-white font-bold text-xl
+            ${isLandscape ? 'w-36 h-36' : 'w-52 h-52'} rounded-full
+            flex flex-col items-center justify-center gap-1
+            text-foreground font-bold ${isLandscape ? 'text-base' : 'text-xl'}
             shadow-xl
             ${canPressBuzzer 
-              ? 'bg-yellow-500 hover:bg-yellow-600 active:scale-95 cursor-pointer' 
-              : 'bg-gray-400 cursor-not-allowed'
+              ? 'bg-accent hover:brightness-110 active:scale-95 cursor-pointer' 
+              : 'bg-muted cursor-not-allowed'
             }
           `}
         >
-          <Bell className="w-28 h-28" />
+          <Bell className={isLandscape ? 'w-14 h-14' : 'w-28 h-28'} />
           {canPressBuzzer ? (
             <span>{t(lang, 'press')}</span>
           ) : buzzer.active ? (
-            <span className="text-lg">{buzzer.player}</span>
+            <span className={isLandscape ? 'text-xs' : 'text-lg'}>{buzzer.player}</span>
           ) : (
-            <span className="text-lg">{t(lang, 'wait')}</span>
+            <span className={isLandscape ? 'text-xs' : 'text-lg'}>{t(lang, 'wait')}</span>
           )}
         </button>
       </div>
