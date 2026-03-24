@@ -10,6 +10,7 @@ interface HexagonProps {
   clipClass?: string;
   onClick?: () => void;
   sizeUnit?: 'vw' | 'vh';
+  sizeBase?: string;
 }
 
 const Hexagon = forwardRef<HTMLDivElement, HexagonProps>(({
@@ -21,9 +22,10 @@ const Hexagon = forwardRef<HTMLDivElement, HexagonProps>(({
   fixedType,
   clipClass,
   onClick,
-  sizeUnit = 'vw'
+  sizeUnit = 'vw',
+  sizeBase: sizeBaseProp,
 }, ref) => {
-  const sizeBase = sizeUnit === 'vh' ? '75vh' : '90vw';
+  const sizeBase = sizeBaseProp || (sizeUnit === 'vh' ? '75vh' : '90vw');
   
   const baseStyles = {
     width: `calc(${sizeBase}/7)`,
