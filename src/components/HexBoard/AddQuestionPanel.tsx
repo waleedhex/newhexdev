@@ -11,9 +11,10 @@ import { t, getLangFromUrl } from '@/lib/i18n';
 interface AddQuestionPanelProps {
   sessionCode: string;
   selectedLetter?: string;
+  isLandscape?: boolean;
 }
 
-const AddQuestionPanel: React.FC<AddQuestionPanelProps> = ({ sessionCode, selectedLetter = '' }) => {
+const AddQuestionPanel: React.FC<AddQuestionPanelProps> = ({ sessionCode, selectedLetter = '', isLandscape = false }) => {
   const lang = getLangFromUrl();
   const availableLetters = lang === 'en' ? ENGLISH_LETTERS : LETTERS;
 
@@ -66,19 +67,19 @@ const AddQuestionPanel: React.FC<AddQuestionPanelProps> = ({ sessionCode, select
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto mt-4 bg-card border rounded-xl shadow-lg overflow-hidden">
-      <div className="bg-secondary px-2 sm:px-4 py-2 sm:py-3 flex items-center gap-2 sm:gap-3">
-        <Plus className="w-5 h-5 sm:w-6 sm:h-6 text-secondary-foreground" />
-        <span className="text-secondary-foreground font-bold text-sm sm:text-lg">{t(lang, 'addCustomQuestion')}</span>
+    <div className={`w-full mx-auto bg-card border rounded-xl shadow-lg ${isLandscape ? '' : 'max-w-2xl mt-4'}`}>
+      <div className={`bg-secondary rounded-t-xl flex items-center gap-2 ${isLandscape ? 'px-2 py-1' : 'px-2 sm:px-4 py-2 sm:py-3 gap-2 sm:gap-3'}`}>
+        <Plus className={isLandscape ? 'w-3.5 h-3.5 text-secondary-foreground' : 'w-5 h-5 sm:w-6 sm:h-6 text-secondary-foreground'} />
+        <span className={`text-secondary-foreground font-bold ${isLandscape ? 'text-[10px]' : 'text-sm sm:text-lg'}`}>{t(lang, 'addCustomQuestion')}</span>
       </div>
 
-      <form onSubmit={handleSubmit} className="p-4 space-y-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">{t(lang, 'letter')}</label>
+      <form onSubmit={handleSubmit} className={isLandscape ? 'p-1.5 space-y-1.5' : 'p-4 space-y-4'}>
+        <div className={isLandscape ? 'space-y-0.5' : 'space-y-2'}>
+          <label className={`font-medium text-foreground ${isLandscape ? 'text-[10px]' : 'text-sm'}`}>{t(lang, 'letter')}</label>
           <select
             value={letter}
             onChange={(e) => setLetter(e.target.value)}
-            className="w-full h-10 px-3 rounded-md border border-input bg-background text-foreground"
+            className={`w-full rounded-md border border-input bg-background text-foreground ${isLandscape ? 'h-7 px-2 text-xs' : 'h-10 px-3'}`}
             disabled={loading}
           >
             <option value="">{t(lang, 'chooseLetter')}</option>
@@ -88,30 +89,31 @@ const AddQuestionPanel: React.FC<AddQuestionPanelProps> = ({ sessionCode, select
           </select>
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">{t(lang, 'question')}</label>
+        <div className={isLandscape ? 'space-y-0.5' : 'space-y-2'}>
+          <label className={`font-medium text-foreground ${isLandscape ? 'text-[10px]' : 'text-sm'}`}>{t(lang, 'question')}</label>
           <Textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder={t(lang, 'enterQuestionPlaceholder')}
-            className="min-h-[80px] resize-none"
+            className={isLandscape ? 'min-h-[40px] resize-none text-xs' : 'min-h-[80px] resize-none'}
             disabled={loading}
           />
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">{t(lang, 'answerLabel')}</label>
+        <div className={isLandscape ? 'space-y-0.5' : 'space-y-2'}>
+          <label className={`font-medium text-foreground ${isLandscape ? 'text-[10px]' : 'text-sm'}`}>{t(lang, 'answerLabel')}</label>
           <Input
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
             placeholder={t(lang, 'enterAnswerPlaceholder')}
+            className={isLandscape ? 'h-7 text-xs' : ''}
             disabled={loading}
           />
         </div>
 
         <Button
           type="submit"
-          className="w-full gap-2"
+          className={`w-full gap-2 ${isLandscape ? 'h-7 text-xs' : ''}`}
           disabled={loading || !letter || !question.trim() || !answer.trim()}
         >
           {loading ? (
