@@ -30,6 +30,7 @@ interface ControlButtonsProps {
   greenColor?: string;
   goldenLetterEnabled?: boolean;
   onToggleGoldenLetter?: () => void;
+  isLandscape?: boolean;
 }
 
 const ControlButtons = forwardRef<HTMLDivElement, ControlButtonsProps>(({
@@ -43,6 +44,7 @@ const ControlButtons = forwardRef<HTMLDivElement, ControlButtonsProps>(({
   greenColor = '#22c55e',
   goldenLetterEnabled = true,
   onToggleGoldenLetter,
+  isLandscape = false,
 }, ref) => {
   const lang = getLangFromUrl();
   const [copied, setCopied] = useState(false);
@@ -113,25 +115,13 @@ const ControlButtons = forwardRef<HTMLDivElement, ControlButtonsProps>(({
     }
   };
 
-  const buttonClass = `
-    w-[5vw] h-[5vw]
-    min-w-[30px] min-h-[30px]
-    max-w-[60px] max-h-[60px]
-    rounded-full
-    bg-[#007bff]
-    text-white
-    border-none
-    flex justify-center items-center
-    text-[2vw]
-    cursor-pointer
-    transition-all duration-300
-    hover:scale-110 hover:bg-[#0056b3]
-    shadow-lg
-  `;
+  const buttonClass = isLandscape
+    ? `w-7 h-7 rounded-full bg-[#007bff] text-white border-none flex justify-center items-center cursor-pointer transition-all duration-300 hover:scale-110 hover:bg-[#0056b3] shadow-md`
+    : `w-[5vw] h-[5vw] min-w-[30px] min-h-[30px] max-w-[60px] max-h-[60px] rounded-full bg-[#007bff] text-white border-none flex justify-center items-center text-[2vw] cursor-pointer transition-all duration-300 hover:scale-110 hover:bg-[#0056b3] shadow-lg`;
 
   return (
-    <div ref={ref} className="flex flex-col items-center gap-2 my-[1vw]">
-      <div className="flex gap-[1vw] items-center flex-wrap justify-center">
+    <div ref={ref} className={`flex flex-col items-center ${isLandscape ? 'gap-1 my-0.5' : 'gap-2 my-[1vw]'}`}>
+      <div className={`flex items-center flex-wrap justify-center ${isLandscape ? 'gap-1' : 'gap-[1vw]'}`}>
         <button className={buttonClass} onClick={onShuffle} title={t(lang, 'shuffleLetters')}>
           <Shuffle className="w-1/2 h-1/2" />
         </button>
@@ -275,13 +265,13 @@ const ControlButtons = forwardRef<HTMLDivElement, ControlButtonsProps>(({
 
         {/* Golden letter toggle */}
         {onToggleGoldenLetter && (
-          <div dir="ltr" className="flex items-center gap-1 sm:gap-2 bg-amber-500/20 px-1.5 sm:px-3 py-1 sm:py-2 rounded-full border border-amber-500/30 mr-1 sm:mr-2">
-            <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-amber-500" />
-            <span className="text-amber-600 dark:text-amber-400 text-[10px] sm:text-sm font-medium whitespace-nowrap">{t(lang, 'golden')}</span>
+          <div dir="ltr" className={`flex items-center bg-amber-500/20 rounded-full border border-amber-500/30 ${isLandscape ? 'gap-0.5 px-1 py-0.5' : 'gap-1 sm:gap-2 px-1.5 sm:px-3 py-1 sm:py-2 mr-1 sm:mr-2'}`}>
+            <Sparkles className={isLandscape ? 'w-2.5 h-2.5 text-amber-500' : 'w-3 h-3 sm:w-4 sm:h-4 text-amber-500'} />
+            <span className={`text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap ${isLandscape ? 'text-[7px]' : 'text-[10px] sm:text-sm'}`}>{t(lang, 'golden')}</span>
             <Switch
               checked={goldenLetterEnabled}
               onCheckedChange={onToggleGoldenLetter}
-              className="data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-muted scale-75 sm:scale-100"
+              className={`data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-muted ${isLandscape ? 'scale-50' : 'scale-75 sm:scale-100'}`}
             />
           </div>
         )}
